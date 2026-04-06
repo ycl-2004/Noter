@@ -1399,15 +1399,11 @@ private struct ProcessingView: View {
 private struct EditDocumentView: View {
     @Bindable var model: NotesCuratorAppModel
     @State private var editorText = ""
-    @State private var previewText = ""
-    @State private var previewVersion: DraftVersion?
     @State private var showSources = false
     @State private var showRefinedComparison = false
-    @State private var livePreviewFormat: ExportFormat = .pdf
-    @State private var livePreviewTheme = "Oceanic Blue"
     var fullHeight = false
 
-    private var editorAndPreviewPanelHeight: CGFloat {
+    private var editorPanelHeight: CGFloat {
         fullHeight ? 620 : 520
     }
 
@@ -1421,18 +1417,17 @@ private struct EditDocumentView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 16) {
-                            SectionTitle(title: version.structuredDoc.title, subtitle: "Edit on the left and watch a live preview update beside it.")
+                            SectionTitle(title: version.structuredDoc.title, subtitle: "Focus on editing here, then open the dedicated preview page when you're ready.")
                             Spacer()
                             editorActions
                         }
                         VStack(alignment: .leading, spacing: 16) {
-                            SectionTitle(title: version.structuredDoc.title, subtitle: "Edit on the left and watch a live preview update beside it.")
+                            SectionTitle(title: version.structuredDoc.title, subtitle: "Focus on editing here, then open the dedicated preview page when you're ready.")
                             editorActions
                         }
                     }
 
                     HStack(spacing: 10) {
-                        InfoPill(title: "Preview Sync", value: "On Save")
                         InfoPill(title: "Words", value: "\(wordCount(for: editorText))")
                         InfoPill(title: "Images", value: "\(version.imageSuggestions.filter(\.isSelected).count) selected")
                         if let item = model.selectedDraftItem, item.refinementStatus != .none {
@@ -1444,64 +1439,26 @@ private struct EditDocumentView: View {
                         refinementBanner(for: item)
                     }
 
-                    HStack(alignment: .top, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Editor")
-                                .font(.headline)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Editor")
+                            .font(.headline)
 
-                            KeyboardFriendlyTextEditor(text: $editorText) {
-                                commitEditorChanges()
-                            }
-                            .padding(20)
-                            .frame(height: editorAndPreviewPanelHeight)
-                            .background(Color.white.opacity(0.96))
-                            .clipShape(RoundedRectangle(cornerRadius: 28))
-                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                        KeyboardFriendlyTextEditor(text: $editorText) {
+                            commitEditorChanges()
                         }
-                        .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-
-                        LivePreviewPanel(
-                            version: previewVersion ?? version.livePreviewVersion(
-                                editorDocument: previewText,
-                                visualTemplateName: livePreviewTheme
-                            ),
-                            format: $livePreviewFormat,
-                            selectedTheme: $livePreviewTheme,
-                            availableThemes: model.visualTemplates.map(\.name),
-                            fullHeight: fullHeight
-                        )
+                        .padding(20)
+                        .frame(height: editorPanelHeight)
+                        .background(Color.white.opacity(0.96))
+                        .clipShape(RoundedRectangle(cornerRadius: 28))
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .onAppear {
                         editorText = version.editorDocument
-                        previewText = version.editorDocument
-                        livePreviewTheme = version.structuredDoc.exportMetadata.visualTemplateName
-                        previewVersion = version.livePreviewVersion(
-                            editorDocument: version.editorDocument,
-                            visualTemplateName: version.structuredDoc.exportMetadata.visualTemplateName
-                        )
-                        livePreviewFormat = model.preferences.defaultExportFormat
                     }
                     .onChange(of: version.id) { _, _ in
-                        editorText = model.currentVersion?.editorDocument ?? editorText
-                        previewText = model.currentVersion?.editorDocument ?? previewText
                         if let currentVersion = model.currentVersion {
-                            livePreviewTheme = currentVersion.structuredDoc.exportMetadata.visualTemplateName
-                            previewVersion = currentVersion.livePreviewVersion(
-                                editorDocument: currentVersion.editorDocument,
-                                visualTemplateName: currentVersion.structuredDoc.exportMetadata.visualTemplateName
-                            )
-                        }
-                    }
-                    .onChange(of: livePreviewTheme) { _, newValue in
-                        guard let currentVersion = model.currentVersion else { return }
-                        previewVersion = currentVersion.livePreviewVersion(
-                            editorDocument: previewText,
-                            visualTemplateName: newValue
-                        )
-                        guard currentVersion.structuredDoc.exportMetadata.visualTemplateName != newValue else { return }
-                        runModelTask(model) {
-                            try await model.updateVisualTemplate(newValue)
+                            editorText = currentVersion.editorDocument
                         }
                     }
                 }
@@ -1634,164 +1591,16 @@ private struct EditDocumentView: View {
     }
 
     private func commitEditorChanges() {
-        previewText = editorText
-        if let currentVersion = model.currentVersion {
-            previewVersion = currentVersion.livePreviewVersion(
-                editorDocument: editorText,
-                visualTemplateName: currentVersion.structuredDoc.exportMetadata.visualTemplateName
-            )
-        }
         runModelTask(model) {
             try await model.updateEditorDocument(editorText)
         }
     }
 
     private func commitAndSaveVersion() {
-        previewText = editorText
-        if let currentVersion = model.currentVersion {
-            previewVersion = currentVersion.livePreviewVersion(
-                editorDocument: editorText,
-                visualTemplateName: currentVersion.structuredDoc.exportMetadata.visualTemplateName
-            )
-        }
         runModelTask(model) {
             try await model.updateEditorDocument(editorText)
             try await model.saveManualVersion()
         }
-    }
-}
-
-private struct LivePreviewPanel: View {
-    let version: DraftVersion
-    @Binding var format: ExportFormat
-    @Binding var selectedTheme: String
-    let availableThemes: [String]
-    var fullHeight = false
-
-    private var theme: DocumentTheme {
-        DocumentTheme.named(version.structuredDoc.exportMetadata.visualTemplateName)
-    }
-
-    private var panelHeight: CGFloat {
-        fullHeight ? 620 : 520
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
-                    Text("Live Preview")
-                        .font(.headline)
-                    Spacer()
-                    previewControls(theme: theme)
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Live Preview")
-                        .font(.headline)
-                    previewControls(theme: theme)
-                }
-            }
-
-            ScrollView {
-                LivePreviewSurface(version: version, format: format)
-                    .equatable()
-            }
-            .frame(height: panelHeight)
-            .background((Color(hex: theme.surfaceHex) ?? Color.white).opacity(0.98))
-            .overlay(
-                RoundedRectangle(cornerRadius: 28)
-                    .stroke((Color(hex: theme.borderHex) ?? Color.gray.opacity(0.2)), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 28))
-            .frame(minWidth: 360, maxWidth: .infinity, alignment: .topLeading)
-        }
-        .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    @ViewBuilder
-    private func previewControls(theme: DocumentTheme) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 12) {
-                previewFormatPicker
-                previewThemePicker
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                previewFormatPicker
-                previewThemePicker
-            }
-        }
-    }
-
-    private var previewFormatPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Preview Format")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            Picker("Preview Format", selection: $format) {
-                ForEach(ExportFormat.allCases, id: \.self) { option in
-                    Text(option.displayName)
-                        .tag(option)
-                }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .frame(minWidth: 190, idealWidth: 210, maxWidth: 220, alignment: .leading)
-            .controlSize(.regular)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color.white.opacity(0.92))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.black.opacity(0.06), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-
-    private var previewThemePicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Theme")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            Picker("Theme", selection: $selectedTheme) {
-                ForEach(availableThemes, id: \.self) { name in
-                    Text(name)
-                        .tag(name)
-                }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .frame(minWidth: 160, idealWidth: 180, maxWidth: 200, alignment: .leading)
-            .controlSize(.regular)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background((Color(hex: theme.surfaceHex) ?? Color.white).opacity(0.92))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke((Color(hex: theme.borderHex) ?? Color.black.opacity(0.06)), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-}
-
-private struct LivePreviewSurface: View, Equatable {
-    let version: DraftVersion
-    let format: ExportFormat
-
-    nonisolated static func == (lhs: LivePreviewSurface, rhs: LivePreviewSurface) -> Bool {
-        lhs.format == rhs.format &&
-        lhs.version.id == rhs.version.id &&
-        lhs.version.editorDocument == rhs.version.editorDocument &&
-        lhs.version.structuredDoc.exportMetadata.visualTemplateName == rhs.version.structuredDoc.exportMetadata.visualTemplateName
-    }
-
-    var body: some View {
-        DraftPreviewSurface(version: version, format: format, richTextStyle: .finalPreview)
     }
 }
 
@@ -1892,34 +1701,6 @@ private struct InspectorImagesCard: View, Equatable {
     }
 }
 
-private struct LivePreviewPlaceholder: View {
-    var fullHeight = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Live Preview")
-                    .font(.headline)
-                Spacer()
-                ProgressView()
-                    .controlSize(.small)
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Preparing final preview...")
-                    .font(.headline)
-                Text("The editor loads first so entering a draft stays responsive. Your full structured preview appears right after.")
-                    .foregroundStyle(.secondary)
-            }
-            .padding(24)
-            .frame(minHeight: fullHeight ? 620 : 520, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color.white.opacity(0.92))
-            .clipShape(RoundedRectangle(cornerRadius: 28))
-        }
-        .frame(minWidth: 360, maxWidth: .infinity, alignment: .topLeading)
-    }
-}
-
 private struct RefinedComparisonSheet: View {
     let currentVersion: DraftVersion
     let refinedVersion: DraftVersion
@@ -2008,14 +1789,8 @@ private struct RefinedComparisonSheet: View {
 private struct DraftPreviewSurface: View {
     let version: DraftVersion
     let format: ExportFormat
-    var richTextStyle: RichTextStyle = .finalPreview
 
     private let exporter = ExportCoordinator()
-
-    enum RichTextStyle {
-        case finalPreview
-        case liveEditor
-    }
 
     var body: some View {
         if format.usesSourcePreview {
@@ -2027,12 +1802,7 @@ private struct DraftPreviewSurface: View {
                 .background(Color.white.opacity(0.96))
                 .clipShape(RoundedRectangle(cornerRadius: 28))
         } else {
-            switch richTextStyle {
-            case .finalPreview:
-                StyledDraftPreview(version: version)
-            case .liveEditor:
-                StyledEditorDocumentPreview(version: version)
-            }
+            StyledDraftPreview(version: version)
         }
     }
 }
