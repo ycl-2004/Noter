@@ -1025,7 +1025,19 @@ private struct WorkspaceFlowContainer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            FlowStageStrip(currentFlow: flow)
+            FlowStageStrip(currentFlow: flow) { selectedStage in
+                guard let destination = FocusCanvasStageNavigation.destination(for: selectedStage, from: flow) else {
+                    return
+                }
+                switch destination {
+                case .editing:
+                    model.goBackToEditing()
+                case .preview:
+                    model.showPreview()
+                case .intake, .processing, .export:
+                    break
+                }
+            }
 
             switch flow {
             case .intake:
@@ -1950,57 +1962,76 @@ private struct ReviewSurfaceScaffold<Document: View, Inspector: View>: View {
     let title: String
     let subtitle: String
     let mode: ReviewSurfaceMode
+    let headerActions: FlowHeaderActionSet
     let inspectorSubtitle: String
-    let actionLabels: ReviewSurfaceActionLabels
     var fullHeight = false
     let onSecondary: () -> Void
     let onPrimary: () -> Void
     @ViewBuilder let document: Document
     @ViewBuilder let inspector: Inspector
+    @State private var showsInspector = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            ResponsiveSplitLayout(
-                leadingMinWidth: 760,
-                trailingMinWidth: 320,
-                trailingFixedWidth: 320
-            ) {
-                VStack(alignment: .leading, spacing: 16) {
-                    SectionTitle(title: title, subtitle: subtitle)
+            HStack(alignment: .top, spacing: 16) {
+                SectionTitle(title: title, subtitle: subtitle)
 
+                Spacer(minLength: 12)
+
+                HStack(spacing: 10) {
+                    if ReviewSurfaceChrome.supportsInspectorCollapse(for: mode) {
+                        Button(showsInspector ? "Hide Controls" : "Show Controls") {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                showsInspector.toggle()
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    Button(headerActions.secondary, action: onSecondary)
+                        .buttonStyle(.bordered)
+
+                    Button(headerActions.primary, action: onPrimary)
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+
+            Group {
+                if showsInspector {
+                    ResponsiveSplitLayout(
+                        leadingMinWidth: 580,
+                        trailingMinWidth: 280,
+                        trailingFixedWidth: 280,
+                        spacing: 18
+                    ) {
+                        StableDocumentScrollView {
+                            document
+                        }
+                    } trailing: {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 16) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(mode.inspectorTitle)
+                                        .font(.caption.bold())
+                                        .foregroundStyle(.secondary)
+                                    Text(inspectorSubtitle)
+                                        .font(.headline)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                inspector
+                            }
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .frame(maxHeight: .infinity, alignment: .topLeading)
+                    }
+                } else {
                     StableDocumentScrollView {
                         document
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            } trailing: {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(mode.inspectorTitle)
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
-                        Text(inspectorSubtitle)
-                            .font(.headline)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    inspector
-                }
             }
-
-            HStack(spacing: 12) {
-                Button(actionLabels.secondary, action: onSecondary)
-                    .buttonStyle(.bordered)
-
-                Spacer()
-
-                Button(actionLabels.primary, action: onPrimary)
-                    .buttonStyle(.borderedProminent)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-            .background(Color.white.opacity(0.82))
-            .clipShape(RoundedRectangle(cornerRadius: 22))
         }
         .frame(maxWidth: .infinity, maxHeight: fullHeight ? .infinity : nil, alignment: .topLeading)
     }
@@ -2019,8 +2050,12 @@ private struct PreviewView: View {
                 title: "Preview",
                 subtitle: "Review the current note in its output form before saving anything.",
                 mode: .preview,
+                headerActions: FlowHeaderActionSet.actions(for: .preview) ?? .init(
+                    primary: ReviewSurfaceActionLabels.preview.primary,
+                    secondary: ReviewSurfaceActionLabels.preview.secondary,
+                    placement: .trailing
+                ),
                 inspectorSubtitle: "Adjust output appearance without covering the document.",
-                actionLabels: .preview,
                 fullHeight: fullHeight,
                 onSecondary: {
                     model.goBackToEditing()
@@ -2032,7 +2067,10 @@ private struct PreviewView: View {
                     DraftPreviewSurface(version: previewVersion, format: format)
                 },
                 inspector: {
-                    ControlPanelCard(title: "Document Summary") {
+                    CollapsibleControlPanelCard(
+                        title: "Document Summary",
+                        startsExpanded: previewInspectorState(for: "Document Summary")
+                    ) {
                         VStack(alignment: .leading, spacing: 10) {
                             InfoPill(title: "Template", value: selectedVisualTemplate)
                             InfoPill(title: "Language", value: version.outputLanguage == .chinese ? "中文" : "English")
@@ -2040,7 +2078,10 @@ private struct PreviewView: View {
                         }
                     }
 
-                    ControlPanelCard(title: "Format") {
+                    CollapsibleControlPanelCard(
+                        title: "Format",
+                        startsExpanded: previewInspectorState(for: "Format")
+                    ) {
                         previewFormatPicker
 
                         Text("Use the same rendering surface you see here when you continue to export.")
@@ -2048,7 +2089,10 @@ private struct PreviewView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    ControlPanelCard(title: "Visual Template") {
+                    CollapsibleControlPanelCard(
+                        title: "Visual Template",
+                        startsExpanded: previewInspectorState(for: "Visual Template")
+                    ) {
                         Picker("Visual Template", selection: $selectedVisualTemplate) {
                             ForEach(model.visualTemplates, id: \.name) { template in
                                 Text(template.name).tag(template.name)
@@ -2088,6 +2132,13 @@ private struct PreviewView: View {
         .pickerStyle(.menu)
         .frame(width: 240)
     }
+
+    private func previewInspectorState(for title: String) -> Bool {
+        ReviewSurfaceChrome
+            .inspectorSections(for: .preview, hasExportResult: false)
+            .first(where: { $0.title == title })?
+            .startsExpanded ?? true
+    }
 }
 
 private struct ExportPageView: View {
@@ -2106,8 +2157,12 @@ private struct ExportPageView: View {
                 title: "Export",
                 subtitle: "Confirm the exact output format and destination before saving the document.",
                 mode: .export,
+                headerActions: FlowHeaderActionSet.actions(for: .export) ?? .init(
+                    primary: ReviewSurfaceActionLabels.export.primary,
+                    secondary: ReviewSurfaceActionLabels.export.secondary,
+                    placement: .trailing
+                ),
                 inspectorSubtitle: "Finalize output details while keeping the rendered note in view.",
-                actionLabels: .export,
                 fullHeight: fullHeight,
                 onSecondary: {
                     model.showPreview()
@@ -2128,7 +2183,10 @@ private struct ExportPageView: View {
                     }
                 },
                 inspector: {
-                    ControlPanelCard(title: "Document Summary") {
+                    CollapsibleControlPanelCard(
+                        title: "Document Summary",
+                        startsExpanded: exportInspectorState(for: "Document Summary")
+                    ) {
                         VStack(alignment: .leading, spacing: 10) {
                             InfoPill(title: "Template", value: selectedVisualTemplate)
                             InfoPill(title: "Language", value: version.outputLanguage == .chinese ? "中文" : "English")
@@ -2136,7 +2194,10 @@ private struct ExportPageView: View {
                         }
                     }
 
-                    ControlPanelCard(title: "Format") {
+                    CollapsibleControlPanelCard(
+                        title: "Format",
+                        startsExpanded: exportInspectorState(for: "Format")
+                    ) {
                         Picker("Format", selection: $selectedFormat) {
                             ForEach(ExportFormat.allCases, id: \.self) { option in
                                 Text(option.displayName).tag(option)
@@ -2150,7 +2211,10 @@ private struct ExportPageView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    ControlPanelCard(title: "Visual Template") {
+                    CollapsibleControlPanelCard(
+                        title: "Visual Template",
+                        startsExpanded: exportInspectorState(for: "Visual Template")
+                    ) {
                         Picker("Template", selection: $selectedVisualTemplate) {
                             ForEach(model.visualTemplates, id: \.name) { template in
                                 Text(template.name).tag(template.name)
@@ -2159,12 +2223,18 @@ private struct ExportPageView: View {
                         .labelsHidden()
                     }
 
-                    ControlPanelCard(title: "Current Output Language") {
+                    CollapsibleControlPanelCard(
+                        title: "Current Output Language",
+                        startsExpanded: exportInspectorState(for: "Current Output Language")
+                    ) {
                         Text(model.currentVersion?.outputLanguage == .chinese ? "中文" : "English")
                             .font(.headline)
                     }
 
-                    ControlPanelCard(title: "Export Readiness") {
+                    CollapsibleControlPanelCard(
+                        title: "Export Readiness",
+                        startsExpanded: exportInspectorState(for: "Export Readiness")
+                    ) {
                         VStack(alignment: .leading, spacing: 10) {
                             Label("Preview and export stay aligned through the same rendering layer.", systemImage: "checkmark.seal")
                             Label("Current draft supports Markdown, TXT, HTML, RTF, DOCX, and PDF output.", systemImage: "doc.richtext")
@@ -2174,7 +2244,10 @@ private struct ExportPageView: View {
                     }
 
                     if let exportResult {
-                        VStack(alignment: .leading, spacing: 10) {
+                        CollapsibleControlPanelCard(
+                            title: "Latest Export",
+                            startsExpanded: exportInspectorState(for: "Latest Export")
+                        ) {
                             Label(exportResult, systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(Color.green)
                             if let lastExportURL {
@@ -2186,23 +2259,44 @@ private struct ExportPageView: View {
                         }
                     }
 
-                    Button("Save Visual Template") {
-                        runModelTask(model) {
-                            try await model.saveUserTemplate(
-                                kind: .visual,
-                                name: "\(selectedVisualTemplate) Copy",
-                                config: ["source": selectedVisualTemplate]
-                            )
+                    CollapsibleControlPanelCard(
+                        title: "Save Template",
+                        startsExpanded: exportInspectorState(for: "Save Template")
+                    ) {
+                        Button("Save Visual Template") {
+                            runModelTask(model) {
+                                try await model.saveUserTemplate(
+                                    kind: .visual,
+                                    name: "\(selectedVisualTemplate) Copy",
+                                    config: ["source": selectedVisualTemplate]
+                                )
+                            }
                         }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
                 }
             )
             .onAppear {
                 selectedFormat = model.preferences.defaultExportFormat
                 selectedVisualTemplate = version.structuredDoc.exportMetadata.visualTemplateName
             }
+            .onChange(of: version.structuredDoc.exportMetadata.visualTemplateName) { _, newValue in
+                selectedVisualTemplate = newValue
+            }
+            .onChange(of: selectedVisualTemplate) { _, newValue in
+                guard model.currentVersion?.structuredDoc.exportMetadata.visualTemplateName != newValue else { return }
+                runModelTask(model) {
+                    try await model.updateVisualTemplate(newValue)
+                }
+            }
         }
+    }
+
+    private func exportInspectorState(for title: String) -> Bool {
+        ReviewSurfaceChrome
+            .inspectorSections(for: .export, hasExportResult: exportResult != nil)
+            .first(where: { $0.title == title })?
+            .startsExpanded ?? true
     }
 
     private func exportToFolder() {
@@ -3449,6 +3543,50 @@ private struct ControlPanelCard<Content: View>: View {
     }
 }
 
+private struct CollapsibleControlPanelCard<Content: View>: View {
+    let title: String
+    let startsExpanded: Bool
+    @ViewBuilder let content: Content
+    @State private var isExpanded: Bool
+
+    init(title: String, startsExpanded: Bool, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.startsExpanded = startsExpanded
+        self.content = content()
+        _isExpanded = State(initialValue: startsExpanded)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Text(title)
+                        .font(.headline)
+                    Spacer()
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                content
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+    }
+}
+
 private struct StatusChip: View {
     let title: String
     let value: String
@@ -3823,6 +3961,7 @@ private struct ResponsiveSplitLayout<Leading: View, Trailing: View>: View {
 
 private struct FlowStageStrip: View {
     let currentFlow: WorkspaceFlowStage
+    var onStageSelected: ((WorkspaceFlowStage) -> Void)? = nil
 
     var body: some View {
         let items = FocusCanvasStageModel.items(currentFlow: currentFlow)
@@ -3830,24 +3969,45 @@ private struct FlowStageStrip: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(items, id: \.stage) { item in
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(accent(for: item.state))
-                            .frame(width: 8, height: 8)
-
-                        Text(title(for: item.stage))
-                            .font(.caption.weight(item.state == .current ? .semibold : .medium))
-                            .foregroundStyle(item.state == .current ? Color.accentColor : Color.secondary)
+                    if item.isNavigable, let onStageSelected {
+                        Button {
+                            onStageSelected(item.stage)
+                        } label: {
+                            stageChip(for: item)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        stageChip(for: item)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(background(for: item.state))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(border(for: item.state), lineWidth: item.state == .current ? 1 : 0)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
+            }
+        }
+    }
+
+    private func stageChip(for item: FocusCanvasStageItem) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(accent(for: item.state))
+                .frame(width: 8, height: 8)
+
+            Text(title(for: item.stage))
+                .font(.caption.weight(item.state == .current ? .semibold : .medium))
+                .foregroundStyle(item.state == .current ? Color.accentColor : Color.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(background(for: item.state))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(border(for: item.state), lineWidth: item.state == .current ? 1 : 0)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(alignment: .bottomTrailing) {
+            if item.isNavigable {
+                Image(systemName: "arrow.uturn.backward.circle.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color.accentColor)
+                    .offset(x: 4, y: 4)
             }
         }
     }

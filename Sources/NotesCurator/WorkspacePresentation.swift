@@ -15,6 +15,7 @@ enum FocusCanvasStageState: Equatable {
 struct FocusCanvasStageItem: Equatable {
     let stage: WorkspaceFlowStage
     let state: FocusCanvasStageState
+    let isNavigable: Bool
 }
 
 enum ReviewSurfaceMode: Equatable {
@@ -67,6 +68,88 @@ struct ReviewSurfaceActionLabels: Equatable {
     static let export = Self(primary: "Export to Folder", secondary: "Back to Preview")
 }
 
+enum FlowHeaderActionPlacement: Equatable {
+    case trailing
+}
+
+struct FlowHeaderActionSet: Equatable {
+    let primary: String
+    let secondary: String
+    let placement: FlowHeaderActionPlacement
+
+    static func actions(for stage: WorkspaceFlowStage) -> Self? {
+        switch stage {
+        case .preview:
+            return .init(
+                primary: ReviewSurfaceActionLabels.preview.primary,
+                secondary: ReviewSurfaceActionLabels.preview.secondary,
+                placement: .trailing
+            )
+        case .export:
+            return .init(
+                primary: ReviewSurfaceActionLabels.export.primary,
+                secondary: ReviewSurfaceActionLabels.export.secondary,
+                placement: .trailing
+            )
+        case .intake, .processing, .editing:
+            return nil
+        }
+    }
+}
+
+struct ReviewInspectorSection: Equatable {
+    let title: String
+    let startsExpanded: Bool
+}
+
+enum ReviewSurfaceChrome {
+    static func supportsInspectorCollapse(for mode: ReviewSurfaceMode) -> Bool {
+        switch mode {
+        case .preview, .export:
+            return true
+        }
+    }
+
+    static func inspectorSections(for mode: ReviewSurfaceMode, hasExportResult: Bool) -> [ReviewInspectorSection] {
+        switch mode {
+        case .preview:
+            return [
+                .init(title: "Document Summary", startsExpanded: false),
+                .init(title: "Format", startsExpanded: true),
+                .init(title: "Visual Template", startsExpanded: false)
+            ]
+        case .export:
+            var sections: [ReviewInspectorSection] = [
+                .init(title: "Document Summary", startsExpanded: false),
+                .init(title: "Format", startsExpanded: true),
+                .init(title: "Visual Template", startsExpanded: false),
+                .init(title: "Current Output Language", startsExpanded: false),
+                .init(title: "Export Readiness", startsExpanded: false),
+                .init(title: "Save Template", startsExpanded: false)
+            ]
+            if hasExportResult {
+                sections.insert(.init(title: "Latest Export", startsExpanded: true), at: 5)
+            }
+            return sections
+        }
+    }
+}
+
+enum FocusCanvasStageNavigation {
+    static func destination(for tappedStage: WorkspaceFlowStage, from currentFlow: WorkspaceFlowStage) -> WorkspaceFlowStage? {
+        switch (currentFlow, tappedStage) {
+        case (.preview, .editing):
+            return .editing
+        case (.export, .preview):
+            return .preview
+        case (.export, .editing):
+            return .editing
+        default:
+            return nil
+        }
+    }
+}
+
 enum HomeSurfacePolicy {
     static func defaultSections(hasSavedSession: Bool) -> [HomeSurfaceSection] {
         hasSavedSession ? [.resume, .recentActivity, .quickActions] : [.recentActivity, .quickActions]
@@ -89,7 +172,11 @@ enum FocusCanvasStageModel {
             } else {
                 state = .upcoming
             }
-            return FocusCanvasStageItem(stage: stage, state: state)
+            return FocusCanvasStageItem(
+                stage: stage,
+                state: state,
+                isNavigable: FocusCanvasStageNavigation.destination(for: stage, from: currentFlow) != nil
+            )
         }
     }
 }

@@ -85,4 +85,32 @@ struct WorkspacePresentationTests {
         let presentation = DraftCardPresentation.compactResting
         #expect(presentation.showsDangerAction == false)
     }
+
+    @Test
+    func reviewSurfacesPromoteNavigationActionsIntoFlowHeader() {
+        let preview = FlowHeaderActionSet.actions(for: .preview)
+        let export = FlowHeaderActionSet.actions(for: .export)
+
+        #expect(preview?.placement == .trailing)
+        #expect(export?.placement == .trailing)
+        #expect(FlowHeaderActionSet.actions(for: .editing) == nil)
+    }
+
+    @Test
+    func reviewSurfacesSupportCollapsibleInspectorsWithCompactDefaults() {
+        let previewSections = ReviewSurfaceChrome.inspectorSections(for: .preview, hasExportResult: false)
+        let exportSections = ReviewSurfaceChrome.inspectorSections(for: .export, hasExportResult: true)
+
+        #expect(ReviewSurfaceChrome.supportsInspectorCollapse(for: .preview))
+        #expect(previewSections.first(where: { $0.title == "Document Summary" })?.startsExpanded == false)
+        #expect(previewSections.first(where: { $0.title == "Format" })?.startsExpanded == true)
+        #expect(exportSections.first(where: { $0.title == "Latest Export" })?.startsExpanded == true)
+    }
+
+    @Test
+    func statusStripAllowsReturningToPreviousReviewStates() {
+        #expect(FocusCanvasStageNavigation.destination(for: .preview, from: .export) == .preview)
+        #expect(FocusCanvasStageNavigation.destination(for: .editing, from: .preview) == .editing)
+        #expect(FocusCanvasStageNavigation.destination(for: .intake, from: .export) == nil)
+    }
 }
