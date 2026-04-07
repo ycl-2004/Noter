@@ -36,6 +36,10 @@ struct DraftCardPresentation: Equatable {
     let showsDangerAction: Bool
 }
 
+extension DraftCardPresentation {
+    static let compactResting = Self(summaryLineLimit: 2, showsDangerAction: false)
+}
+
 enum WorkspaceShellPolicy {
     static let showsLocalCategoryTabs = false
 }

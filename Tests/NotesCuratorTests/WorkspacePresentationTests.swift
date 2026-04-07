@@ -73,4 +73,16 @@ struct WorkspacePresentationTests {
         #expect(ReviewSurfaceActionLabels.preview.primary == "Continue to Export")
         #expect(ReviewSurfaceActionLabels.export.primary == "Export to Folder")
     }
+
+    @Test
+    func draftCardsClampSummaryToTwoLinesInCompactContexts() {
+        let presentation = DraftCardPresentation.compactResting
+        #expect(presentation.summaryLineLimit == 2)
+    }
+
+    @Test
+    func dangerActionsStayHiddenInRestingCardState() {
+        let presentation = DraftCardPresentation.compactResting
+        #expect(presentation.showsDangerAction == false)
+    }
 }

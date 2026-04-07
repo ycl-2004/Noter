@@ -3163,6 +3163,7 @@ private struct DraftRowCard: View {
     var onDelete: (() -> Void)?
     var isActive = false
     var compact = false
+    @State private var isHovering = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -3188,7 +3189,7 @@ private struct DraftRowCard: View {
 
                 Text(item.summaryPreview)
                     .foregroundStyle(.secondary)
-                    .lineLimit(compact ? 2 : 3)
+                    .lineLimit(presentation.summaryLineLimit)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -3202,6 +3203,9 @@ private struct DraftRowCard: View {
                 }
                 .buttonStyle(.plain)
                 .help(deleteHelpText)
+                .opacity(presentation.showsDangerAction ? 1 : 0)
+                .allowsHitTesting(presentation.showsDangerAction)
+                .animation(.easeInOut(duration: 0.16), value: presentation.showsDangerAction)
             }
         }
         .padding(compact ? 14 : 18)
@@ -3213,9 +3217,22 @@ private struct DraftRowCard: View {
                 .stroke(isActive ? Color.accentColor.opacity(0.28) : Color.clear, lineWidth: 1.2)
         )
         .contentShape(RoundedRectangle(cornerRadius: 22))
+        .onHover { hovering in
+            isHovering = hovering
+        }
         .onTapGesture {
             action?()
         }
+    }
+
+    private var presentation: DraftCardPresentation {
+        let base = compact
+            ? DraftCardPresentation.compactResting
+            : DraftCardPresentation(summaryLineLimit: 3, showsDangerAction: false)
+        return DraftCardPresentation(
+            summaryLineLimit: base.summaryLineLimit,
+            showsDangerAction: isHovering
+        )
     }
 
     private var deleteIconName: String {
