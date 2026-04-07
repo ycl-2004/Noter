@@ -100,4 +100,135 @@ struct PersistenceTests {
         let snapshot = try await repository.loadSnapshot()
         #expect(snapshot.items.count == 25)
     }
+
+    @Test
+    func sqliteRepositoryDeletesWorkspaceItemsAndDerivedExportsTogether() async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("sqlite")
+
+        let repository = try SQLiteCuratorRepository(databaseURL: tempURL)
+
+        let workspace = Workspace(name: "Cleanup", cover: .ocean)
+        let draft = WorkspaceItem(
+            workspaceId: workspace.id,
+            kind: .draft,
+            title: "Delete me",
+            summaryPreview: "Completed note",
+            currentVersionId: UUID()
+        )
+        let version = DraftVersion(
+            id: draft.currentVersionId ?? UUID(),
+            workspaceItemId: draft.id,
+            goalType: .structuredNotes,
+            outputLanguage: .english,
+            editorDocument: "Delete me",
+            structuredDoc: StructuredDocument(
+                title: "Delete me",
+                summary: "Completed note",
+                keyPoints: [],
+                sections: [],
+                actionItems: [],
+                imageSlots: [],
+                exportMetadata: ExportMetadata(
+                    contentTemplateName: "Structured Notes",
+                    visualTemplateName: "Oceanic Blue",
+                    preferredFormat: .txt
+                )
+            ),
+            sourceRefs: [],
+            imageSuggestions: []
+        )
+        let exportRecord = ExportRecord(
+            draftVersionId: version.id,
+            format: .txt,
+            outputPath: "/tmp/delete-me.txt"
+        )
+        let exportItem = WorkspaceItem(
+            workspaceId: workspace.id,
+            kind: .export,
+            title: "delete-me.txt",
+            summaryPreview: "Exported TXT file",
+            currentVersionId: version.id
+        )
+
+        try await repository.save(workspace: workspace)
+        try await repository.save(item: draft)
+        try await repository.save(version: version)
+        try await repository.save(export: exportRecord)
+        try await repository.save(item: exportItem)
+
+        try await repository.delete(itemID: draft.id)
+
+        let snapshot = try await repository.loadSnapshot()
+        #expect(snapshot.items.isEmpty)
+        #expect(snapshot.versions.isEmpty)
+        #expect(snapshot.exports.isEmpty)
+    }
+
+    @Test
+    func sqliteRepositoryDeletesExportRecordsWithoutTouchingItemsOrVersions() async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("sqlite")
+
+        let repository = try SQLiteCuratorRepository(databaseURL: tempURL)
+
+        let workspace = Workspace(name: "Exports", cover: .ocean)
+        let draft = WorkspaceItem(
+            workspaceId: workspace.id,
+            kind: .draft,
+            title: "Keep me",
+            summaryPreview: "Original note",
+            currentVersionId: UUID()
+        )
+        let version = DraftVersion(
+            id: draft.currentVersionId ?? UUID(),
+            workspaceItemId: draft.id,
+            goalType: .structuredNotes,
+            outputLanguage: .english,
+            editorDocument: "Keep me",
+            structuredDoc: StructuredDocument(
+                title: "Keep me",
+                summary: "Original note",
+                keyPoints: [],
+                sections: [],
+                actionItems: [],
+                imageSlots: [],
+                exportMetadata: ExportMetadata(
+                    contentTemplateName: "Structured Notes",
+                    visualTemplateName: "Oceanic Blue",
+                    preferredFormat: .pdf
+                )
+            ),
+            sourceRefs: [],
+            imageSuggestions: []
+        )
+        let exportRecord = ExportRecord(
+            draftVersionId: version.id,
+            format: .pdf,
+            outputPath: "/tmp/keep-me.pdf"
+        )
+        let exportItem = WorkspaceItem(
+            workspaceId: workspace.id,
+            kind: .export,
+            title: "keep-me.pdf",
+            summaryPreview: "Exported PDF file",
+            currentVersionId: version.id
+        )
+
+        try await repository.save(workspace: workspace)
+        try await repository.save(item: draft)
+        try await repository.save(version: version)
+        try await repository.save(export: exportRecord)
+        try await repository.save(item: exportItem)
+
+        try await repository.delete(exportID: exportRecord.id)
+
+        let snapshot = try await repository.loadSnapshot()
+        #expect(snapshot.exports.isEmpty)
+        #expect(snapshot.items.count == 2)
+        #expect(snapshot.versions.count == 1)
+        #expect(snapshot.versions.first?.id == version.id)
+    }
 }

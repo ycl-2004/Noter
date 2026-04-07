@@ -17,6 +17,7 @@ final class NotesCuratorAppModel {
     private let pipelineBuilder: ((AppPreferences) -> DocumentProcessingPipeline)?
     private var processingTasks: [UUID: Task<Void, Never>] = [:]
     private var refinementTasks: [UUID: Task<Void, Never>] = [:]
+    private var deletedItemIDs: Set<UUID> = []
 
     var selectedSidebarSection: SidebarSection = .home
     var workspaces: [Workspace] = []
@@ -152,6 +153,7 @@ final class NotesCuratorAppModel {
                 .filter { workspaceItemIDs.contains($0.workspaceItemId) }
                 .map(\.id)
         )
+        deletedItemIDs.formUnion(workspaceItemIDs)
 
         for itemID in workspaceItemIDs {
             if items.first(where: { $0.id == itemID })?.status == .processing {
@@ -253,12 +255,57 @@ final class NotesCuratorAppModel {
 
     func deleteFailedDraft(_ itemID: UUID) async throws {
         guard let item = items.first(where: { $0.id == itemID && $0.status == .failed }) else { return }
-        try await discardDraft(item.id)
+        try await deleteWorkspaceItem(item.id)
     }
 
     func stopAndDeleteDraft(_ itemID: UUID) async throws {
         guard let item = items.first(where: { $0.id == itemID }) else { return }
-        try await discardDraft(item.id)
+        try await deleteWorkspaceItem(item.id)
+    }
+
+    func deleteWorkspaceItem(_ itemID: UUID) async throws {
+        guard let item = items.first(where: { $0.id == itemID }) else { return }
+        deletedItemIDs.insert(itemID)
+
+        if item.status == .processing {
+            processingTasks[itemID]?.cancel()
+            processingTasks[itemID] = nil
+        }
+        refinementTasks[itemID]?.cancel()
+        refinementTasks[itemID] = nil
+        if processingTasks.isEmpty && refinementTasks.isEmpty {
+            await pipeline.cancelActiveWork()
+        }
+
+        let linkedVersionIDs = Set(
+            versions
+                .filter { $0.workspaceItemId == itemID }
+                .map(\.id)
+        )
+        let exportVersionIDs = exportVersionIDs(for: item, linkedVersionIDs: linkedVersionIDs)
+        let linkedExportItemIDs = linkedExportItemIDs(for: exportVersionIDs, excluding: itemID)
+
+        try await repository.delete(itemID: itemID)
+        items.removeAll { $0.id == itemID || linkedExportItemIDs.contains($0.id) }
+        versions.removeAll { $0.workspaceItemId == itemID }
+        exports.removeAll { exportVersionIDs.contains($0.draftVersionId) }
+
+        if let selectedItemID, selectedItemID == itemID || linkedExportItemIDs.contains(selectedItemID) {
+            self.selectedItemID = nil
+            currentFlow = nil
+            processingStages = []
+            processingStartedAt = nil
+            currentProcessingStageStartedAt = nil
+        }
+
+        hasSavedSession = selectedWorkspaceID != nil || self.selectedItemID != nil
+        try await persistLastSession(
+            LastSessionSnapshot(
+                sidebarSection: selectedSidebarSection,
+                workspaceId: selectedWorkspaceID ?? item.workspaceId,
+                itemId: selectedItemID
+            )
+        )
     }
 
     func clearStuckDrafts() async throws {
@@ -266,6 +313,7 @@ final class NotesCuratorAppModel {
             $0.kind == .draft && ($0.status == .processing || $0.status == .failed)
         }
         guard !stuckItems.isEmpty else { return }
+        deletedItemIDs.formUnion(stuckItems.map(\.id))
 
         for item in stuckItems where item.status == .processing {
             processingTasks[item.id]?.cancel()
@@ -303,8 +351,13 @@ final class NotesCuratorAppModel {
     func updateEditorDocument(_ document: String) async throws {
         guard var version = currentVersion else { return }
         version.editorDocument = document
+        version.structuredDoc = EditorDocumentSync.sync(
+            document: document,
+            into: version.structuredDoc,
+            language: version.outputLanguage
+        )
         try await persistCurrentVersion(version)
-        try await touchSelectedDraftSummary(using: document)
+        try await syncSelectedDraftItem(using: version)
     }
 
     func updateVisualTemplate(_ name: String) async throws {
@@ -331,7 +384,7 @@ final class NotesCuratorAppModel {
         }
 
         try await persistCurrentVersion(version)
-        try await touchSelectedDraftSummary(using: version.editorDocument)
+        try await syncSelectedDraftItem(using: version)
     }
 
     func saveManualVersion() async throws {
@@ -353,6 +406,7 @@ final class NotesCuratorAppModel {
         versions.insert(savedVersion, at: 0)
 
         currentItem.currentVersionId = savedVersion.id
+        currentItem.title = savedVersion.structuredDoc.title
         currentItem.lastEditedAt = .now
         currentItem.summaryPreview = summaryPreview(for: savedVersion.editorDocument, fallback: savedVersion.structuredDoc.summary)
         currentItem.status = .ready
@@ -426,6 +480,12 @@ final class NotesCuratorAppModel {
         try await repository.save(item: exportItem)
         items.insert(exportItem, at: 0)
         return url
+    }
+
+    func deleteExportRecord(_ exportID: UUID) async throws {
+        guard exports.contains(where: { $0.id == exportID }) else { return }
+        try await repository.delete(exportID: exportID)
+        exports.removeAll { $0.id == exportID }
     }
 
     func saveUserTemplate(kind: TemplateKind, name: String, config: [String: String]) async throws {
@@ -594,6 +654,7 @@ final class NotesCuratorAppModel {
               let pendingVersion = pendingRefinedVersion else { return }
 
         item.currentVersionId = pendingVersion.id
+        item.title = pendingVersion.structuredDoc.title
         item.pendingRefinedVersionId = nil
         item.refinementStatus = .none
         item.lastEditedAt = .now
@@ -657,40 +718,6 @@ final class NotesCuratorAppModel {
         )
     }
 
-    private func discardDraft(_ itemID: UUID) async throws {
-        guard let item = items.first(where: { $0.id == itemID }) else { return }
-
-        if item.status == .processing {
-            processingTasks[itemID]?.cancel()
-            processingTasks[itemID] = nil
-        }
-        refinementTasks[itemID]?.cancel()
-        refinementTasks[itemID] = nil
-        if processingTasks.isEmpty && refinementTasks.isEmpty {
-            await pipeline.cancelActiveWork()
-        }
-
-        try await repository.delete(itemID: itemID)
-        items.removeAll { $0.id == itemID }
-        versions.removeAll { $0.workspaceItemId == itemID }
-
-        if selectedItemID == itemID {
-            selectedItemID = nil
-            currentFlow = nil
-            processingStages = []
-            processingStartedAt = nil
-            currentProcessingStageStartedAt = nil
-        }
-
-        try await persistLastSession(
-            LastSessionSnapshot(
-                sidebarSection: selectedSidebarSection,
-                workspaceId: selectedWorkspaceID ?? item.workspaceId,
-                itemId: selectedItemID
-            )
-        )
-    }
-
     private func persistCurrentVersion(_ version: DraftVersion) async throws {
         try await repository.save(version: version)
         if let index = versions.firstIndex(where: { $0.id == version.id }) {
@@ -707,10 +734,11 @@ final class NotesCuratorAppModel {
         }
     }
 
-    private func touchSelectedDraftSummary(using document: String) async throws {
+    private func syncSelectedDraftItem(using version: DraftVersion) async throws {
         guard var item = selectedDraftItem else { return }
+        item.title = version.structuredDoc.title
         item.lastEditedAt = .now
-        item.summaryPreview = summaryPreview(for: document, fallback: item.summaryPreview)
+        item.summaryPreview = summaryPreview(for: version.editorDocument, fallback: version.structuredDoc.summary)
         try await repository.save(item: item)
         if let index = items.firstIndex(where: { $0.id == item.id }) {
             items[index] = item
@@ -723,6 +751,27 @@ final class NotesCuratorAppModel {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return fallback }
         return String(trimmed.prefix(140))
+    }
+
+    private func exportVersionIDs(for item: WorkspaceItem, linkedVersionIDs: Set<UUID>) -> Set<UUID> {
+        var versionIDs = linkedVersionIDs
+        if item.kind == .export, let currentVersionID = item.currentVersionId {
+            versionIDs.insert(currentVersionID)
+        }
+        return versionIDs
+    }
+
+    private func linkedExportItemIDs(for versionIDs: Set<UUID>, excluding itemID: UUID) -> Set<UUID> {
+        guard !versionIDs.isEmpty else { return [] }
+        return Set(
+            items
+                .filter {
+                    $0.id != itemID &&
+                    $0.kind == .export &&
+                    $0.currentVersionId.map(versionIDs.contains) == true
+                }
+                .map(\.id)
+        )
     }
 
     private func failureSummary(for error: Error) -> String {
@@ -790,6 +839,11 @@ final class NotesCuratorAppModel {
         itemID: UUID,
         refinedVersion: DraftVersion
     ) async throws {
+        guard !deletedItemIDs.contains(itemID),
+              refinementTasks[itemID] != nil,
+              items.contains(where: { $0.id == itemID }) else {
+            return
+        }
         try await repository.save(version: refinedVersion)
         versions.insert(refinedVersion, at: 0)
 
@@ -804,6 +858,7 @@ final class NotesCuratorAppModel {
         for itemID: UUID,
         error: Error
     ) async throws {
+        guard !deletedItemIDs.contains(itemID) else { return }
         guard var item = items.first(where: { $0.id == itemID }) else { return }
         item.refinementStatus = .failed
         item.pendingRefinedVersionId = nil

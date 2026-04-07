@@ -9,6 +9,7 @@ protocol CuratorRepository: Sendable {
     func save(template: Template) async throws
     func delete(templateID: UUID) async throws
     func save(export: ExportRecord) async throws
+    func delete(exportID: UUID) async throws
     func delete(itemID: UUID) async throws
     func save(preferences: AppPreferences) async throws
     func save(lastSession: LastSessionSnapshot) async throws
@@ -105,13 +106,42 @@ actor SQLiteCuratorRepository: CuratorRepository {
         try upsert(record: export, table: "exports")
     }
 
+    func delete(exportID: UUID) async throws {
+        try deleteRecord(id: exportID, from: "exports")
+    }
+
     func delete(itemID: UUID) async throws {
-        try deleteRecord(id: itemID, from: "items")
+        let allItems = try loadRecords(from: "items", as: WorkspaceItem.self)
+        let item = allItems.first { $0.id == itemID }
         let linkedVersionIDs = try loadRecords(from: "versions", as: DraftVersion.self)
             .filter { $0.workspaceItemId == itemID }
             .map(\.id)
+        var exportVersionIDs = Set(linkedVersionIDs)
+        if item?.kind == .export, let currentVersionID = item?.currentVersionId {
+            exportVersionIDs.insert(currentVersionID)
+        }
+
+        let linkedExportItemIDs = allItems
+            .filter {
+                $0.id != itemID &&
+                $0.kind == .export &&
+                $0.currentVersionId.map(exportVersionIDs.contains) == true
+            }
+            .map(\.id)
+
+        for exportItemID in linkedExportItemIDs {
+            try deleteRecord(id: exportItemID, from: "items")
+        }
+        try deleteRecord(id: itemID, from: "items")
         for versionID in linkedVersionIDs {
             try deleteRecord(id: versionID, from: "versions")
+        }
+
+        let linkedExportIDs = try loadRecords(from: "exports", as: ExportRecord.self)
+            .filter { exportVersionIDs.contains($0.draftVersionId) }
+            .map(\.id)
+        for exportID in linkedExportIDs {
+            try deleteRecord(id: exportID, from: "exports")
         }
     }
 

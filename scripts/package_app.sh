@@ -16,7 +16,12 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 ICONSET_DIR="$DIST_DIR/AppIcon.iconset"
 ICON_PATH="$RESOURCES_DIR/AppIcon.icns"
 SOURCE_ICON_PATH="/Users/yichenlin/Desktop/App/App_Icon.png"
+PROJECT_ICON_PATH="$ROOT_DIR/App_Icon.png"
 BRAND_ARTWORK_PATH="$RESOURCES_DIR/BrandArtwork.png"
+
+if [[ -f "$PROJECT_ICON_PATH" ]]; then
+  SOURCE_ICON_PATH="$PROJECT_ICON_PATH"
+fi
 
 echo "Building $APP_DISPLAY_NAME ($CONFIGURATION)..."
 swift build -c "$CONFIGURATION" --package-path "$ROOT_DIR" >/dev/null
@@ -63,6 +68,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
     <key>CFBundleExecutable</key>
     <string>NotesCurator</string>
     <key>CFBundleIconFile</key>
+    <string>AppIcon.icns</string>
+    <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.yichenlin.Noter</string>
@@ -91,6 +98,9 @@ touch "$RESOURCES_DIR/.keep"
 if command -v codesign >/dev/null 2>&1; then
   codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
 fi
+
+# Nudge Finder and LaunchServices to re-read the rebuilt bundle metadata and icon.
+touch "$ICON_PATH" "$CONTENTS_DIR/Info.plist" "$APP_DIR"
 
 echo "Created app bundle:"
 echo "$APP_DIR"

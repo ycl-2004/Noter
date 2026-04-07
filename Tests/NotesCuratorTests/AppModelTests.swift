@@ -119,6 +119,208 @@ struct AppModelTests {
     }
 
     @Test
+    func appModelSyncsEditedMarkdownIntoStructuredPreviewAndWorkspaceTitle() async throws {
+        let repository = MemoryRepository()
+        let pipeline = DocumentProcessingPipeline(
+            parser: StubParser(
+                parsed: ParsedDocument(
+                    text: "delegatecall allows a contract to run another contract's code in its own context.",
+                    sources: [SourceReference(kind: .pastedText, title: "Input", excerpt: "delegatecall allows...")],
+                    images: []
+                )
+            ),
+            primaryProvider: StubProvider(
+                isHealthy: true,
+                response: ProviderDraftResponse(
+                    title: "Original Title",
+                    summary: "Original summary",
+                    keyPoints: ["Original point"],
+                    sections: [StructuredSection(title: "Overview", body: "Original body")],
+                    actionItems: [],
+                    renderedDocument: "Original Title\n\nSummary\nOriginal summary"
+                )
+            )
+        )
+
+        let model = NotesCuratorAppModel(repository: repository, pipeline: pipeline)
+        try await model.load()
+        let workspace = try await model.createWorkspace(named: "Editing")
+
+        try await model.processNewNote(
+            in: workspace.id,
+            intake: IntakeRequest(
+                pastedText: "delegatecall allows a contract to run another contract's code in its own context.",
+                fileURLs: [],
+                goalType: .structuredNotes,
+                outputLanguage: .chinese,
+                contentTemplateName: "Structured Notes",
+                visualTemplateName: "Ivory Lecture"
+            )
+        )
+
+        let editedDocument = """
+        # Delegatecall 机制详解
+
+        ## 摘要
+        Delegatecall 允许一个合约在调用者上下文中执行外部代码。
+
+        ## 复习提示
+        - 它和 call 的最大区别是什么？
+        - 为什么会影响存储布局？
+
+        ## 核心要点
+        - msg.sender 和 msg.value 会沿用调用者上下文。
+        - 必须确保存储槽布局兼容。
+
+        ## 1. 核心概念
+        Delegatecall 不会切换执行上下文。
+        - 状态修改发生在调用者合约中。
+        """
+
+        try await model.updateEditorDocument(editedDocument)
+
+        let version = try #require(model.currentVersion)
+        #expect(version.structuredDoc.title == "Delegatecall 机制详解")
+        #expect(version.structuredDoc.summary == "Delegatecall 允许一个合约在调用者上下文中执行外部代码。")
+        #expect(version.structuredDoc.cueQuestions == ["它和 call 的最大区别是什么？", "为什么会影响存储布局？"])
+        #expect(version.structuredDoc.keyPoints == ["msg.sender 和 msg.value 会沿用调用者上下文。", "必须确保存储槽布局兼容。"])
+        #expect(version.structuredDoc.sections.count == 1)
+        #expect(version.structuredDoc.sections.first?.title == "1. 核心概念")
+        #expect(version.structuredDoc.sections.first?.body == "Delegatecall 不会切换执行上下文。")
+        #expect(version.structuredDoc.sections.first?.bulletPoints == ["状态修改发生在调用者合约中。"])
+        #expect(model.selectedDraftItem?.title == "Delegatecall 机制详解")
+    }
+
+    @Test
+    func appModelUsesEditedTitleWhenSavingAndExporting() async throws {
+        let repository = MemoryRepository()
+        let pipeline = DocumentProcessingPipeline(
+            parser: StubParser(
+                parsed: ParsedDocument(
+                    text: "delegatecall allows a contract to reuse code.",
+                    sources: [SourceReference(kind: .pastedText, title: "Input", excerpt: "delegatecall allows...")],
+                    images: []
+                )
+            ),
+            primaryProvider: StubProvider(
+                isHealthy: true,
+                response: ProviderDraftResponse(
+                    title: "Original Draft",
+                    summary: "Original summary",
+                    keyPoints: ["Original point"],
+                    sections: [StructuredSection(title: "Overview", body: "Original body")],
+                    actionItems: [],
+                    renderedDocument: "Original Draft\n\nSummary\nOriginal summary"
+                )
+            )
+        )
+
+        let model = NotesCuratorAppModel(repository: repository, pipeline: pipeline)
+        try await model.load()
+        let workspace = try await model.createWorkspace(named: "Exports")
+
+        try await model.processNewNote(
+            in: workspace.id,
+            intake: IntakeRequest(
+                pastedText: "delegatecall allows a contract to reuse code.",
+                fileURLs: [],
+                goalType: .structuredNotes,
+                outputLanguage: .english,
+                contentTemplateName: "Structured Notes",
+                visualTemplateName: "Oceanic Blue"
+            )
+        )
+
+        try await model.updateEditorDocument(
+            """
+            # Updated Delegatecall Title
+
+            ## Summary
+            Updated summary for export naming.
+
+            ## Key Points
+            - Keep the exported filename in sync.
+            """
+        )
+        try await model.saveManualVersion()
+
+        let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exported = try await model.exportCurrentDraft(format: .markdown, to: outputDirectory)
+
+        #expect(model.currentVersion?.structuredDoc.title == "Updated Delegatecall Title")
+        #expect(model.selectedDraftItem?.title == "Updated Delegatecall Title")
+        #expect(exported?.lastPathComponent == "updated-delegatecall-title.md")
+    }
+
+    @Test
+    func appModelRemovesStaleStructuredSectionsWhenEditorDeletesThem() async throws {
+        let repository = MemoryRepository()
+        let pipeline = DocumentProcessingPipeline(
+            parser: StubParser(
+                parsed: ParsedDocument(
+                    text: "Initial structured note",
+                    sources: [SourceReference(kind: .pastedText, title: "Input", excerpt: "Initial structured note")],
+                    images: []
+                )
+            ),
+            primaryProvider: StubProvider(
+                isHealthy: true,
+                response: ProviderDraftResponse(
+                    title: "Structured Draft",
+                    summary: "Original summary",
+                    keyPoints: ["Point A"],
+                    sections: [
+                        StructuredSection(title: "Overview", body: "Old section body"),
+                        StructuredSection(title: "Details", body: "Another section")
+                    ],
+                    actionItems: ["Follow up"],
+                    renderedDocument: """
+                    Structured Draft
+
+                    Summary
+                    Original summary
+
+                    Overview
+                    Old section body
+                    """
+                )
+            )
+        )
+
+        let model = NotesCuratorAppModel(repository: repository, pipeline: pipeline)
+        try await model.load()
+        let workspace = try await model.createWorkspace(named: "Cleanup")
+
+        try await model.processNewNote(
+            in: workspace.id,
+            intake: IntakeRequest(
+                pastedText: "Initial structured note",
+                fileURLs: [],
+                goalType: .structuredNotes,
+                outputLanguage: .english,
+                contentTemplateName: "Structured Notes",
+                visualTemplateName: "Oceanic Blue"
+            )
+        )
+
+        try await model.updateEditorDocument(
+            """
+            # Structured Draft
+
+            ## Summary
+            Only the summary should remain after cleanup.
+            """
+        )
+
+        let version = try #require(model.currentVersion)
+        #expect(version.structuredDoc.summary == "Only the summary should remain after cleanup.")
+        #expect(version.structuredDoc.sections.isEmpty)
+        #expect(version.structuredDoc.keyPoints.isEmpty)
+        #expect(version.structuredDoc.actionItems.isEmpty)
+    }
+
+    @Test
     func appModelReportsProviderHealth() async throws {
         let repository = MemoryRepository()
         let pipeline = DocumentProcessingPipeline(
@@ -608,6 +810,129 @@ struct AppModelTests {
     }
 
     @Test
+    func appModelDeletesReadyDraftsAndCascadesDerivedExports() async throws {
+        let repository = MemoryRepository()
+        let pipeline = DocumentProcessingPipeline(
+            parser: StubParser(
+                parsed: ParsedDocument(
+                    text: "This note should be deletable after it is generated.",
+                    sources: [SourceReference(kind: .pastedText, title: "Input", excerpt: "This note should be deletable...")],
+                    images: []
+                )
+            ),
+            primaryProvider: StubProvider(
+                isHealthy: true,
+                response: ProviderDraftResponse(
+                    title: "Deletable Note",
+                    summary: "A completed note that also has an export.",
+                    keyPoints: ["Delete should work after completion"],
+                    sections: [StructuredSection(title: "Overview", body: "Ready notes must remain removable.")],
+                    actionItems: ["Verify delete behavior"],
+                    renderedDocument: "Ready notes must remain removable."
+                )
+            )
+        )
+
+        let model = NotesCuratorAppModel(repository: repository, pipeline: pipeline)
+        try await model.load()
+        let workspace = try await model.createWorkspace(named: "Deletion Coverage")
+
+        try await model.processNewNote(
+            in: workspace.id,
+            intake: IntakeRequest(
+                pastedText: "This note should be deletable after it is generated.",
+                fileURLs: [],
+                goalType: .structuredNotes,
+                outputLanguage: .english,
+                contentTemplateName: "Structured Notes",
+                visualTemplateName: "Oceanic Blue"
+            )
+        )
+
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exportURL = try await model.exportCurrentDraft(format: .txt, to: exportDirectory)
+        #expect(exportURL != nil)
+        #expect(model.workspaceItems(in: workspace.id, kind: .export).count == 1)
+        #expect(model.exports.count == 1)
+
+        let readyDraft = try #require(model.workspaceItems(in: workspace.id, kind: .draft).first)
+        #expect(readyDraft.status == .ready)
+
+        try await model.deleteWorkspaceItem(readyDraft.id)
+
+        #expect(model.workspaceItems(in: workspace.id, kind: .draft).isEmpty)
+        #expect(model.workspaceItems(in: workspace.id, kind: .export).isEmpty)
+        #expect(model.exports.isEmpty)
+        #expect(model.versions.isEmpty)
+        #expect(model.selectedItemID == nil)
+        #expect(model.currentFlow == nil)
+        #expect(repository.snapshot.items.isEmpty)
+        #expect(repository.snapshot.versions.isEmpty)
+        #expect(repository.snapshot.exports.isEmpty)
+    }
+
+    @Test
+    func appModelCanDeleteAnExportRecordWithoutTouchingItsDraft() async throws {
+        let repository = MemoryRepository()
+        let pipeline = DocumentProcessingPipeline(
+            parser: StubParser(
+                parsed: ParsedDocument(
+                    text: "Keep the note, remove only the export record.",
+                    sources: [SourceReference(kind: .pastedText, title: "Input", excerpt: "Keep the note...")],
+                    images: []
+                )
+            ),
+            primaryProvider: StubProvider(
+                isHealthy: true,
+                response: ProviderDraftResponse(
+                    title: "Export Record Test",
+                    summary: "A note with one export record.",
+                    keyPoints: ["Exports should be independently removable"],
+                    sections: [StructuredSection(title: "Overview", body: "Delete only the export record from the exports page.")],
+                    actionItems: [],
+                    renderedDocument: "Delete only the export record."
+                )
+            )
+        )
+
+        let model = NotesCuratorAppModel(repository: repository, pipeline: pipeline)
+        try await model.load()
+        let workspace = try await model.createWorkspace(named: "Exports")
+
+        try await model.processNewNote(
+            in: workspace.id,
+            intake: IntakeRequest(
+                pastedText: "Keep the note, remove only the export record.",
+                fileURLs: [],
+                goalType: .structuredNotes,
+                outputLanguage: .english,
+                contentTemplateName: "Structured Notes",
+                visualTemplateName: "Oceanic Blue"
+            )
+        )
+
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let exportURL = try await model.exportCurrentDraft(format: .pdf, to: exportDirectory)
+        #expect(exportURL != nil)
+
+        let exportRecord = try #require(model.exports.first)
+        let draftCountBeforeDelete = model.workspaceItems(in: workspace.id, kind: .draft).count
+        let exportItemCountBeforeDelete = model.workspaceItems(in: workspace.id, kind: .export).count
+        let noteStillExists = model.selectedDraftItem?.id
+
+        try await model.deleteExportRecord(exportRecord.id)
+
+        #expect(model.exports.isEmpty)
+        #expect(repository.snapshot.exports.isEmpty)
+        #expect(model.workspaceItems(in: workspace.id, kind: .draft).count == draftCountBeforeDelete)
+        #expect(model.workspaceItems(in: workspace.id, kind: .export).count == exportItemCountBeforeDelete)
+        #expect(model.selectedDraftItem?.id == noteStillExists)
+        #expect(!model.versions.isEmpty)
+    }
+
+    @Test
     func appModelSyncsSystemTemplatesAndRemovesRedundantVisualCopies() async throws {
         let repository = MemoryRepository()
         repository.snapshot.templates = [
@@ -662,9 +987,27 @@ private final class MemoryRepository: CuratorRepository, @unchecked Sendable {
     func save(template: Template) async throws { snapshot.templates = upsert(template, into: snapshot.templates) }
     func delete(templateID: UUID) async throws { snapshot.templates.removeAll { $0.id == templateID } }
     func save(export: ExportRecord) async throws { snapshot.exports = upsert(export, into: snapshot.exports) }
+    func delete(exportID: UUID) async throws { snapshot.exports.removeAll { $0.id == exportID } }
     func delete(itemID: UUID) async throws {
-        snapshot.items.removeAll { $0.id == itemID }
-        snapshot.versions.removeAll { $0.workspaceItemId == itemID }
+        let item = snapshot.items.first { $0.id == itemID }
+        let linkedVersionIDs = Set(snapshot.versions.filter { $0.workspaceItemId == itemID }.map(\.id))
+        var exportVersionIDs = linkedVersionIDs
+        if item?.kind == .export, let currentVersionID = item?.currentVersionId {
+            exportVersionIDs.insert(currentVersionID)
+        }
+        let linkedExportItemIDs = Set(
+            snapshot.items
+                .filter {
+                    $0.id != itemID &&
+                    $0.kind == .export &&
+                    $0.currentVersionId.map(exportVersionIDs.contains) == true
+                }
+                .map(\.id)
+        )
+
+        snapshot.items.removeAll { $0.id == itemID || linkedExportItemIDs.contains($0.id) }
+        snapshot.versions.removeAll { linkedVersionIDs.contains($0.id) }
+        snapshot.exports.removeAll { exportVersionIDs.contains($0.draftVersionId) }
     }
     func save(preferences: AppPreferences) async throws { snapshot.preferences = preferences }
     func save(lastSession: LastSessionSnapshot) async throws { snapshot.lastSession = lastSession }

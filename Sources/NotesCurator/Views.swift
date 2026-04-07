@@ -465,11 +465,11 @@ private struct DashboardHomeView: View {
                                 try await model.openDraft(draft.id)
                             }
                         },
-                        onDelete: draft.status != .ready ? {
+                        onDelete: {
                             runModelTask(model) {
-                                try await model.stopAndDeleteDraft(draft.id)
+                                try await model.deleteWorkspaceItem(draft.id)
                             }
-                        } : nil
+                        }
                     )
                 }
             }
@@ -842,60 +842,95 @@ private struct WorkspaceDetailView: View {
                     }
                 }
             },
-            onDelete: item.status != .ready ? {
+            onDelete: {
                 runModelTask(model) {
-                    try await model.stopAndDeleteDraft(item.id)
+                    try await model.deleteWorkspaceItem(item.id)
                 }
-            } : nil,
+            },
             isActive: isActive,
             compact: true
         )
     }
 
     private func compactWorkspaceCard(for item: WorkspaceItem) -> some View {
-        Button {
-            if item.kind == .draft {
+        ZStack(alignment: .topTrailing) {
+            Button {
+                if item.kind == .draft {
+                    runModelTask(model) {
+                        try await model.openDraft(item.id)
+                    }
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Text(item.title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text(item.lastEditedAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Text(item.summaryPreview)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: 8) {
+                        if item.status != .ready {
+                            DraftStatusBadge(status: item.status)
+                        }
+                        if item.refinementStatus != .none {
+                            DraftRefinementBadge(status: item.refinementStatus)
+                        }
+                        Text(item.kind == .draft ? "Draft" : item.kind.rawValue.capitalized)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(14)
+                .frame(width: 240, alignment: .topLeading)
+                .background(Color.white.opacity(0.92))
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+            }
+            .buttonStyle(.plain)
+
+            Button(role: .destructive) {
                 runModelTask(model) {
-                    try await model.openDraft(item.id)
+                    try await model.deleteWorkspaceItem(item.id)
                 }
+            } label: {
+                Image(systemName: item.status == .processing ? "stop.fill" : "trash")
+                    .font(.caption.weight(.bold))
+                    .padding(8)
+                    .background(Color.red.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
             }
-        } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Text(item.title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(item.lastEditedAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Text(item.summaryPreview)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                HStack(spacing: 8) {
-                    if item.status != .ready {
-                        DraftStatusBadge(status: item.status)
-                    }
-                    if item.refinementStatus != .none {
-                        DraftRefinementBadge(status: item.refinementStatus)
-                    }
-                    Text(item.kind == .draft ? "Draft" : item.kind.rawValue.capitalized)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(14)
-            .frame(width: 240, alignment: .topLeading)
-            .background(Color.white.opacity(0.92))
-            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .buttonStyle(.plain)
+            .padding(10)
+            .help(deleteHelpText(for: item))
         }
-        .buttonStyle(.plain)
+    }
+
+    private func deleteHelpText(for item: WorkspaceItem) -> String {
+        switch item.status {
+        case .processing:
+            return "Stop processing and delete draft"
+        case .failed:
+            return "Delete failed draft"
+        case .ready:
+            switch item.kind {
+            case .draft, .note:
+                return "Delete note"
+            case .export:
+                return "Delete export"
+            case .template:
+                return "Delete item"
+            }
+        }
     }
 
     private func flowFocusSubtitle(for item: WorkspaceItem) -> String {
@@ -1417,12 +1452,12 @@ private struct EditDocumentView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 16) {
-                            SectionTitle(title: version.structuredDoc.title, subtitle: "Focus on editing here, then open the dedicated preview page when you're ready.")
+                            SectionTitle(title: editorDisplayTitle(fallback: version.structuredDoc.title), subtitle: "Focus on editing here, then open the dedicated preview page when you're ready.")
                             Spacer()
                             editorActions
                         }
                         VStack(alignment: .leading, spacing: 16) {
-                            SectionTitle(title: version.structuredDoc.title, subtitle: "Focus on editing here, then open the dedicated preview page when you're ready.")
+                            SectionTitle(title: editorDisplayTitle(fallback: version.structuredDoc.title), subtitle: "Focus on editing here, then open the dedicated preview page when you're ready.")
                             editorActions
                         }
                     }
@@ -1519,7 +1554,7 @@ private struct EditDocumentView: View {
             .buttonStyle(.bordered)
 
             Button("Open Format Preview") {
-                model.showPreview()
+                commitAndOpenPreview()
             }
             .buttonStyle(.borderedProminent)
         }
@@ -1601,6 +1636,17 @@ private struct EditDocumentView: View {
             try await model.updateEditorDocument(editorText)
             try await model.saveManualVersion()
         }
+    }
+
+    private func commitAndOpenPreview() {
+        runModelTask(model) {
+            try await model.updateEditorDocument(editorText)
+            model.showPreview()
+        }
+    }
+
+    private func editorDisplayTitle(fallback: String) -> String {
+        EditorDocumentSync.inferredTitle(document: editorText, fallback: fallback)
     }
 }
 
@@ -1807,6 +1853,20 @@ private struct DraftPreviewSurface: View {
     }
 }
 
+private struct StableDocumentScrollView<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ScrollView {
+            content
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .defaultScrollAnchor(.top)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
 private struct PreviewView: View {
     @Bindable var model: NotesCuratorAppModel
     @State private var format: ExportFormat = .markdown
@@ -1849,10 +1909,9 @@ private struct PreviewView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                ScrollView {
+                StableDocumentScrollView {
                     DraftPreviewSurface(version: previewVersion, format: format)
                 }
-                .frame(maxHeight: fullHeight ? .infinity : nil)
 
                 HStack {
                     Button("Back to Editing") {
@@ -1914,7 +1973,7 @@ private struct ExportPageView: View {
             ) {
                 VStack(alignment: .leading, spacing: 16) {
                     SectionTitle(title: "Export Document", subtitle: "Large preview plus final export controls.")
-                    ScrollView {
+                    StableDocumentScrollView {
                         if selectedFormat.usesSourcePreview {
                             Text(exporter.previewText(draft: previewVersion, format: selectedFormat))
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1926,7 +1985,6 @@ private struct ExportPageView: View {
                             StyledDraftPreview(version: previewVersion)
                         }
                     }
-                    .frame(maxHeight: fullHeight ? .infinity : nil)
                 }
             } trailing: {
                 VStack(alignment: .leading, spacing: 18) {
@@ -2055,11 +2113,11 @@ private struct DraftsView: View {
                                 try await model.openDraft(draft.id)
                             }
                         },
-                        onDelete: draft.status != .ready ? {
+                        onDelete: {
                             runModelTask(model) {
-                                try await model.stopAndDeleteDraft(draft.id)
+                                try await model.deleteWorkspaceItem(draft.id)
                             }
-                        } : nil
+                        }
                     )
                 }
             }
@@ -2159,8 +2217,23 @@ private struct ExportsView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("Reveal") {
-                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: export.outputPath)])
+                        HStack(spacing: 10) {
+                            Button("Reveal") {
+                                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: export.outputPath)])
+                            }
+                            Button(role: .destructive) {
+                                runModelTask(model) {
+                                    try await model.deleteExportRecord(export.id)
+                                }
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.headline)
+                                    .padding(10)
+                                    .background(Color.red.opacity(0.12))
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Delete this export record")
                         }
                     }
                     .padding(18)
@@ -2977,16 +3050,16 @@ private struct DraftRowCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if item.status != .ready, let onDelete {
+            if let onDelete {
                 Button(role: .destructive, action: onDelete) {
-                    Image(systemName: item.status == .processing ? "stop.fill" : "trash")
+                    Image(systemName: deleteIconName)
                         .font(.headline)
                         .padding(10)
                         .background(Color.red.opacity(0.12))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
-                .help(item.status == .processing ? "Stop processing and delete draft" : "Delete failed draft")
+                .help(deleteHelpText)
             }
         }
         .padding(compact ? 14 : 18)
@@ -3000,6 +3073,28 @@ private struct DraftRowCard: View {
         .contentShape(RoundedRectangle(cornerRadius: 22))
         .onTapGesture {
             action?()
+        }
+    }
+
+    private var deleteIconName: String {
+        item.status == .processing ? "stop.fill" : "trash"
+    }
+
+    private var deleteHelpText: String {
+        switch item.status {
+        case .processing:
+            return "Stop processing and delete draft"
+        case .failed:
+            return "Delete failed draft"
+        case .ready:
+            switch item.kind {
+            case .draft, .note:
+                return "Delete note"
+            case .export:
+                return "Delete export"
+            case .template:
+                return "Delete item"
+            }
         }
     }
 

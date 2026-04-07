@@ -20,7 +20,7 @@ struct StyledDraftPreview: View {
     }
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     Text(version.structuredDoc.exportMetadata.contentTemplateName.uppercased())
@@ -122,7 +122,7 @@ struct StyledDraftPreview: View {
             if !version.structuredDoc.glossary.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     previewHeading(label(.glossary))
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
+                    VStack(alignment: .leading, spacing: 12) {
                         ForEach(Array(version.structuredDoc.glossary.enumerated()), id: \.offset) { _, item in
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(item.term)
@@ -182,7 +182,7 @@ struct StyledDraftPreview: View {
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 previewHeading(title)
-                LazyVStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 8) {
                     ForEach(items, id: \.self) { item in
                         Label {
                             Text(item)
