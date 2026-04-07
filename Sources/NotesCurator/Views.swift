@@ -1946,6 +1946,66 @@ private struct StableDocumentScrollView<Content: View>: View {
     }
 }
 
+private struct ReviewSurfaceScaffold<Document: View, Inspector: View>: View {
+    let title: String
+    let subtitle: String
+    let mode: ReviewSurfaceMode
+    let inspectorSubtitle: String
+    let actionLabels: ReviewSurfaceActionLabels
+    var fullHeight = false
+    let onSecondary: () -> Void
+    let onPrimary: () -> Void
+    @ViewBuilder let document: Document
+    @ViewBuilder let inspector: Inspector
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ResponsiveSplitLayout(
+                leadingMinWidth: 760,
+                trailingMinWidth: 320,
+                trailingFixedWidth: 320
+            ) {
+                VStack(alignment: .leading, spacing: 16) {
+                    SectionTitle(title: title, subtitle: subtitle)
+
+                    StableDocumentScrollView {
+                        document
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } trailing: {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(mode.inspectorTitle)
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                        Text(inspectorSubtitle)
+                            .font(.headline)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    inspector
+                }
+            }
+
+            HStack(spacing: 12) {
+                Button(actionLabels.secondary, action: onSecondary)
+                    .buttonStyle(.bordered)
+
+                Spacer()
+
+                Button(actionLabels.primary, action: onPrimary)
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .background(Color.white.opacity(0.82))
+            .clipShape(RoundedRectangle(cornerRadius: 22))
+        }
+        .frame(maxWidth: .infinity, maxHeight: fullHeight ? .infinity : nil, alignment: .topLeading)
+    }
+}
+
 private struct PreviewView: View {
     @Bindable var model: NotesCuratorAppModel
     @State private var format: ExportFormat = .markdown
@@ -1955,57 +2015,54 @@ private struct PreviewView: View {
     var body: some View {
         if let version = model.currentVersion {
             let previewVersion = version.previewVersion(visualTemplateName: selectedVisualTemplate)
-            VStack(alignment: .leading, spacing: 18) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 16) {
-                        SectionTitle(title: "Preview", subtitle: "Switch among note-friendly export formats before saving.")
-                        Spacer()
-                        previewFormatPicker
-                    }
-                    VStack(alignment: .leading, spacing: 16) {
-                        SectionTitle(title: "Preview", subtitle: "Switch among note-friendly export formats before saving.")
-                        previewFormatPicker
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    InfoPill(title: "Template", value: selectedVisualTemplate)
-                    InfoPill(title: "Language", value: version.outputLanguage == .chinese ? "中文" : "English")
-                    InfoPill(title: "Format", value: format.shortLabel)
-                }
-
-                ControlPanelCard(title: "Visual Template") {
-                    Picker("Visual Template", selection: $selectedVisualTemplate) {
-                        ForEach(model.visualTemplates, id: \.name) { template in
-                            Text(template.name).tag(template.name)
+            ReviewSurfaceScaffold(
+                title: "Preview",
+                subtitle: "Review the current note in its output form before saving anything.",
+                mode: .preview,
+                inspectorSubtitle: "Adjust output appearance without covering the document.",
+                actionLabels: .preview,
+                fullHeight: fullHeight,
+                onSecondary: {
+                    model.goBackToEditing()
+                },
+                onPrimary: {
+                    model.showExport()
+                },
+                document: {
+                    DraftPreviewSurface(version: previewVersion, format: format)
+                },
+                inspector: {
+                    ControlPanelCard(title: "Document Summary") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            InfoPill(title: "Template", value: selectedVisualTemplate)
+                            InfoPill(title: "Language", value: version.outputLanguage == .chinese ? "中文" : "English")
+                            InfoPill(title: "Format", value: format.shortLabel)
                         }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
 
-                    Text("Change the color theme directly here if the original choice was wrong. Export will follow this selection.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                    ControlPanelCard(title: "Format") {
+                        previewFormatPicker
 
-                StableDocumentScrollView {
-                    DraftPreviewSurface(version: previewVersion, format: format)
-                }
-
-                HStack {
-                    Button("Back to Editing") {
-                        model.goBackToEditing()
+                        Text("Use the same rendering surface you see here when you continue to export.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.bordered)
 
-                    Spacer()
+                    ControlPanelCard(title: "Visual Template") {
+                        Picker("Visual Template", selection: $selectedVisualTemplate) {
+                            ForEach(model.visualTemplates, id: \.name) { template in
+                                Text(template.name).tag(template.name)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
 
-                    Button("Continue to Export") {
-                        model.showExport()
+                        Text("Change the visual theme here. The export stage will keep this same selection.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.borderedProminent)
                 }
-            }
+            )
             .onAppear {
                 format = model.preferences.defaultExportFormat
                 selectedVisualTemplate = version.structuredDoc.exportMetadata.visualTemplateName
@@ -2045,28 +2102,40 @@ private struct ExportPageView: View {
     var body: some View {
         if let version = model.currentVersion {
             let previewVersion = version.previewVersion(visualTemplateName: selectedVisualTemplate)
-            ResponsiveSplitLayout(
-                leadingMinWidth: 760,
-                trailingMinWidth: 320,
-                trailingFixedWidth: 320
-            ) {
-                VStack(alignment: .leading, spacing: 16) {
-                    SectionTitle(title: "Export Document", subtitle: "Large preview plus final export controls.")
-                    StableDocumentScrollView {
-                        if selectedFormat.usesSourcePreview {
-                            Text(exporter.previewText(draft: previewVersion, format: selectedFormat))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .font(.system(.body, design: .monospaced))
-                                .padding(28)
-                                .background(Color.white.opacity(0.96))
-                                .clipShape(RoundedRectangle(cornerRadius: 28))
-                        } else {
-                            StyledDraftPreview(version: previewVersion)
+            ReviewSurfaceScaffold(
+                title: "Export",
+                subtitle: "Confirm the exact output format and destination before saving the document.",
+                mode: .export,
+                inspectorSubtitle: "Finalize output details while keeping the rendered note in view.",
+                actionLabels: .export,
+                fullHeight: fullHeight,
+                onSecondary: {
+                    model.showPreview()
+                },
+                onPrimary: {
+                    exportToFolder()
+                },
+                document: {
+                    if selectedFormat.usesSourcePreview {
+                        Text(exporter.previewText(draft: previewVersion, format: selectedFormat))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .font(.system(.body, design: .monospaced))
+                            .padding(28)
+                            .background(Color.white.opacity(0.96))
+                            .clipShape(RoundedRectangle(cornerRadius: 28))
+                    } else {
+                        StyledDraftPreview(version: previewVersion)
+                    }
+                },
+                inspector: {
+                    ControlPanelCard(title: "Document Summary") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            InfoPill(title: "Template", value: selectedVisualTemplate)
+                            InfoPill(title: "Language", value: version.outputLanguage == .chinese ? "中文" : "English")
+                            InfoPill(title: "Format", value: selectedFormat.shortLabel)
                         }
                     }
-                }
-            } trailing: {
-                VStack(alignment: .leading, spacing: 18) {
+
                     ControlPanelCard(title: "Format") {
                         Picker("Format", selection: $selectedFormat) {
                             ForEach(ExportFormat.allCases, id: \.self) { option in
@@ -2127,40 +2196,34 @@ private struct ExportPageView: View {
                         }
                     }
                     .buttonStyle(.bordered)
-
-                    Button("Export to Folder") {
-                        Task { @MainActor in
-                            if let directory = await presentOpenPanelURL(configure: { panel in
-                                panel.canChooseDirectories = true
-                                panel.canChooseFiles = false
-                                panel.allowsMultipleSelection = false
-                            }) {
-                                do {
-                                    if let url = try await model.exportCurrentDraft(
-                                        format: selectedFormat,
-                                        visualTemplateName: selectedVisualTemplate,
-                                        to: directory
-                                    ) {
-                                        exportResult = "Exported to \(url.lastPathComponent)"
-                                        lastExportURL = url
-                                    }
-                                } catch {
-                                    model.present(error: error)
-                                }
-                            }
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button("Back to Preview") {
-                        model.showPreview()
-                    }
-                    .buttonStyle(.bordered)
                 }
-            }
+            )
             .onAppear {
                 selectedFormat = model.preferences.defaultExportFormat
                 selectedVisualTemplate = version.structuredDoc.exportMetadata.visualTemplateName
+            }
+        }
+    }
+
+    private func exportToFolder() {
+        Task { @MainActor in
+            if let directory = await presentOpenPanelURL(configure: { panel in
+                panel.canChooseDirectories = true
+                panel.canChooseFiles = false
+                panel.allowsMultipleSelection = false
+            }) {
+                do {
+                    if let url = try await model.exportCurrentDraft(
+                        format: selectedFormat,
+                        visualTemplateName: selectedVisualTemplate,
+                        to: directory
+                    ) {
+                        exportResult = "Exported to \(url.lastPathComponent)"
+                        lastExportURL = url
+                    }
+                } catch {
+                    model.present(error: error)
+                }
             }
         }
     }

@@ -61,4 +61,16 @@ struct WorkspacePresentationTests {
         let items = FocusCanvasStageModel.items(currentFlow: .editing)
         #expect(items.count == 5)
     }
+
+    @Test
+    func previewModeUsesReviewInspectorAndExportModeUsesExportInspector() {
+        #expect(ReviewSurfaceMode.preview.inspectorTitle == "Review")
+        #expect(ReviewSurfaceMode.export.inspectorTitle == "Export")
+    }
+
+    @Test
+    func reviewSurfaceUsesPersistentPrimaryActionLabels() {
+        #expect(ReviewSurfaceActionLabels.preview.primary == "Continue to Export")
+        #expect(ReviewSurfaceActionLabels.export.primary == "Export to Folder")
+    }
 }

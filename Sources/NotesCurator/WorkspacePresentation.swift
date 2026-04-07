@@ -55,6 +55,14 @@ struct FocusCanvasHeaderPresentation: Equatable {
     let showsLargeDuplicatedTitle: Bool
 }
 
+struct ReviewSurfaceActionLabels: Equatable {
+    let primary: String
+    let secondary: String
+
+    static let preview = Self(primary: "Continue to Export", secondary: "Back to Editing")
+    static let export = Self(primary: "Export to Folder", secondary: "Back to Preview")
+}
+
 enum HomeSurfacePolicy {
     static func defaultSections(hasSavedSession: Bool) -> [HomeSurfaceSection] {
         hasSavedSession ? [.resume, .recentActivity, .quickActions] : [.recentActivity, .quickActions]
