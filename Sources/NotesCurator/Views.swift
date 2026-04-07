@@ -1024,10 +1024,8 @@ private struct WorkspaceFlowContainer: View {
     var fullHeight = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                FlowStageStrip(currentFlow: flow)
-            }
+        VStack(alignment: .leading, spacing: 18) {
+            FlowStageStrip(currentFlow: flow)
 
             switch flow {
             case .intake:
@@ -1042,9 +1040,9 @@ private struct WorkspaceFlowContainer: View {
                 ExportPageView(model: model, fullHeight: fullHeight)
             }
         }
-        .padding(24)
+        .padding(28)
         .frame(maxWidth: .infinity, maxHeight: fullHeight ? .infinity : nil, alignment: .topLeading)
-        .background(Color.white.opacity(0.52))
+        .background(Color.white.opacity(0.56))
         .clipShape(RoundedRectangle(cornerRadius: 30))
     }
 }
@@ -1068,47 +1066,62 @@ private struct ProjectWorkspaceView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var projectHeader: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Button {
-                runModelTask(model) {
-                    try await model.showWorkspaceOverview()
-                }
-            } label: {
-                Label("Back to Workspace", systemImage: "chevron.left")
-            }
-            .buttonStyle(.bordered)
+    private var headerPresentation: FocusCanvasHeaderPresentation {
+        FocusCanvasHeaderPresentation(
+            workspaceName: workspace.name,
+            noteTitle: item.title,
+            showsLargeDuplicatedTitle: false
+        )
+    }
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(workspace.name)
-                    .font(.caption)
-                    .tracking(1.6)
-                    .foregroundStyle(.secondary)
-                Text(item.title)
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(1)
+    private var projectHeader: some View {
+        HStack(alignment: .center, spacing: 14) {
+            HStack(spacing: 10) {
+                Button {
+                    runModelTask(model) {
+                        try await model.showWorkspaceOverview()
+                    }
+                } label: {
+                    Label("Back to Workspace", systemImage: "chevron.left")
+                }
+                .buttonStyle(.bordered)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(headerPresentation.workspaceName)
+                        .font(.caption)
+                        .tracking(1.6)
+                        .foregroundStyle(.secondary)
+                    Text(headerPresentation.noteTitle)
+                        .font(.headline.weight(.semibold))
+                        .lineLimit(1)
+                }
             }
 
             Spacer()
 
-            Button {
-                toggleSidebar()
-            } label: {
-                Label(
-                    columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar",
-                    systemImage: columnVisibility == .detailOnly ? "sidebar.left" : "sidebar.left"
-                )
-            }
-            .buttonStyle(.bordered)
-
-            Button("New Note") {
-                runModelTask(model) {
-                    try await model.beginNewNote(in: workspace.id)
+            HStack(spacing: 10) {
+                Button {
+                    toggleSidebar()
+                } label: {
+                    Label(
+                        columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar",
+                        systemImage: "sidebar.left"
+                    )
                 }
+                .buttonStyle(.bordered)
+
+                Button("New Note") {
+                    runModelTask(model) {
+                        try await model.beginNewNote(in: workspace.id)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.borderedProminent)
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(Color.white.opacity(0.44))
+        .clipShape(RoundedRectangle(cornerRadius: 24))
     }
 
     private func toggleSidebar() {
@@ -1518,12 +1531,12 @@ private struct EditDocumentView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 16) {
-                            SectionTitle(title: editorDisplayTitle(fallback: version.structuredDoc.title), subtitle: "Focus on editing here, then open the dedicated preview page when you're ready.")
+                            SectionTitle(title: "Edit", subtitle: "Refine the current note here, then move into review when the structure feels right.")
                             Spacer()
                             editorActions
                         }
                         VStack(alignment: .leading, spacing: 16) {
-                            SectionTitle(title: editorDisplayTitle(fallback: version.structuredDoc.title), subtitle: "Focus on editing here, then open the dedicated preview page when you're ready.")
+                            SectionTitle(title: "Edit", subtitle: "Refine the current note here, then move into review when the structure feels right.")
                             editorActions
                         }
                     }
@@ -1541,7 +1554,7 @@ private struct EditDocumentView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Editor")
+                        Text("Document")
                             .font(.headline)
 
                         KeyboardFriendlyTextEditor(text: $editorText) {
@@ -3731,23 +3744,30 @@ private struct ResponsiveSplitLayout<Leading: View, Trailing: View>: View {
 private struct FlowStageStrip: View {
     let currentFlow: WorkspaceFlowStage
 
-    private let orderedStages: [WorkspaceFlowStage] = [.intake, .processing, .editing, .preview, .export]
-
     var body: some View {
-        HStack(spacing: 10) {
-            ForEach(orderedStages, id: \.self) { stage in
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(isReached(stage) ? Color.accentColor : Color.gray.opacity(0.25))
-                        .frame(width: 10, height: 10)
-                    Text(title(for: stage))
-                        .font(.caption.weight(isCurrent(stage) ? .bold : .medium))
-                        .foregroundStyle(isCurrent(stage) ? Color.accentColor : Color.secondary)
+        let items = FocusCanvasStageModel.items(currentFlow: currentFlow)
+
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(items, id: \.stage) { item in
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(accent(for: item.state))
+                            .frame(width: 8, height: 8)
+
+                        Text(title(for: item.stage))
+                            .font(.caption.weight(item.state == .current ? .semibold : .medium))
+                            .foregroundStyle(item.state == .current ? Color.accentColor : Color.secondary)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(background(for: item.state))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(border(for: item.state), lineWidth: item.state == .current ? 1 : 0)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(isCurrent(stage) ? Color.accentColor.opacity(0.10) : Color.white.opacity(0.56))
-                .clipShape(Capsule())
             }
         }
     }
@@ -3762,16 +3782,33 @@ private struct FlowStageStrip: View {
         }
     }
 
-    private func isReached(_ stage: WorkspaceFlowStage) -> Bool {
-        guard let stageIndex = orderedStages.firstIndex(of: stage),
-              let currentIndex = orderedStages.firstIndex(of: currentFlow) else {
-            return false
+    private func accent(for state: FocusCanvasStageState) -> Color {
+        switch state {
+        case .completed, .current:
+            return Color.accentColor
+        case .upcoming:
+            return Color.gray.opacity(0.28)
         }
-        return stageIndex <= currentIndex
     }
 
-    private func isCurrent(_ stage: WorkspaceFlowStage) -> Bool {
-        stage == currentFlow
+    private func background(for state: FocusCanvasStageState) -> Color {
+        switch state {
+        case .current:
+            return Color.accentColor.opacity(0.10)
+        case .completed:
+            return Color.white.opacity(0.76)
+        case .upcoming:
+            return Color.white.opacity(0.48)
+        }
+    }
+
+    private func border(for state: FocusCanvasStageState) -> Color {
+        switch state {
+        case .current:
+            return Color.accentColor.opacity(0.18)
+        case .completed, .upcoming:
+            return .clear
+        }
     }
 }
 

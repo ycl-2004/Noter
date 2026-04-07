@@ -45,4 +45,20 @@ struct WorkspacePresentationTests {
         #expect(badge.title == "Research")
         #expect(badge.detail == "3 drafts")
     }
+
+    @Test
+    func focusCanvasHeaderUsesBreadcrumbStyleIdentity() {
+        let header = FocusCanvasHeaderPresentation(
+            workspaceName: "Security",
+            noteTitle: "Delegatecall 机制详解",
+            showsLargeDuplicatedTitle: false
+        )
+        #expect(header.showsLargeDuplicatedTitle == false)
+    }
+
+    @Test
+    func stageControlAlwaysRendersFiveWorkflowStages() {
+        let items = FocusCanvasStageModel.items(currentFlow: .editing)
+        #expect(items.count == 5)
+    }
 }

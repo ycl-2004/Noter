@@ -49,6 +49,12 @@ struct SidebarWorkspaceBadgePresentation: Equatable {
     }
 }
 
+struct FocusCanvasHeaderPresentation: Equatable {
+    let workspaceName: String
+    let noteTitle: String
+    let showsLargeDuplicatedTitle: Bool
+}
+
 enum HomeSurfacePolicy {
     static func defaultSections(hasSavedSession: Bool) -> [HomeSurfaceSection] {
         hasSavedSession ? [.resume, .recentActivity, .quickActions] : [.recentActivity, .quickActions]
