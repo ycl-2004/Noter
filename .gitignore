@@ -4,6 +4,7 @@
 /dist
 /.swiftpm
 /.superpowers
+/.worktrees
 /docs/superpowers
 /futureupdateplan.md
 xcuserdata/
