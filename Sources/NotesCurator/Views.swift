@@ -229,59 +229,55 @@ private struct AppSidebar: View {
     }
 
     private var activeWorkspaceCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        Group {
             if let workspace = model.selectedWorkspace {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Active Workspace")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(workspace.name)
-                        .font(.headline)
-                    Text(workspace.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                    Text("\(model.workspaceItems(in: workspace.id, kind: .draft).count) drafts ready to refine")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.white.opacity(0.9))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(Color.accentColor.opacity(0.16), lineWidth: 1)
+                let badge = SidebarWorkspaceBadgePresentation.compact(
+                    workspaceName: workspace.name,
+                    draftCount: model.workspaceItems(in: workspace.id, kind: .draft).count
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 18))
 
-                Button {
-                    model.selectedSidebarSection = .workspaces
-                } label: {
-                    Label("Open Workspace", systemImage: "arrow.up.right.square")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Current Workspace")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(badge.title)
+                                .font(.headline)
+                            Text(badge.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "rectangle.stack.badge.person.crop")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(8)
+                            .background(Color.accentColor.opacity(0.10))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+
+                    Button {
+                        model.selectedSidebarSection = .workspaces
+                    } label: {
+                        Label("Open Workspace", systemImage: "arrow.up.right.square")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
+                .padding(14)
+                .background(Color.white.opacity(0.78))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(Color.white.opacity(0.78), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 20))
             }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Local-first intelligence")
-                    .font(.caption.bold())
-                    .foregroundStyle(.primary)
-                Text("Mac workspace, OCR, multilingual drafting, and export-ready notes.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.top, 4)
         }
-        .padding(14)
-        .background(Color.white.opacity(0.72))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .stroke(Color.white.opacity(0.75), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 22))
     }
 
     private func sidebarButton(for section: SidebarSection) -> some View {
@@ -336,11 +332,21 @@ private struct DashboardHomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 header
-                quickActions
-                workspaceGallery
-                HStack(alignment: .top, spacing: 20) {
+
+                if bodySections.contains(.resume) {
+                    currentWorkSection
+                }
+
+                if bodySections.contains(.recentActivity) {
                     recentDrafts
-                    templatePeek
+                }
+
+                if bodySections.contains(.quickActions) {
+                    quickActions
+                }
+
+                if !filteredWorkspaces.isEmpty {
+                    supportingWorkspaceSection
                 }
             }
             .padding(32)
@@ -350,20 +356,24 @@ private struct DashboardHomeView: View {
         }
     }
 
+    private var bodySections: [HomeSurfaceSection] {
+        HomeSurfacePolicy.defaultSections(hasSavedSession: model.hasSavedSession)
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
-                Text("Curated Workspace")
+                    Text("Resume Flow")
                         .font(.caption)
                         .tracking(2)
                         .foregroundStyle(.secondary)
-                    Text("Turn documents into structured, export-ready notes.")
+                    Text("Pick up the note that matters right now.")
                         .font(.system(size: 38, weight: .bold, design: .rounded))
-                    Text("Start from a workspace, import long-form content, refine the AI draft, then preview and export it in note-friendly formats.")
+                    Text("Keep workspaces as context, but keep today's active note at the center of intake, editing, review, and export.")
                         .font(.title3)
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: 760, alignment: .leading)
+                        .frame(maxWidth: 680, alignment: .leading)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 12) {
@@ -399,6 +409,52 @@ private struct DashboardHomeView: View {
                 RoundedRectangle(cornerRadius: 30)
                     .stroke(Color.white.opacity(0.65), lineWidth: 1)
             )
+        }
+    }
+
+    private var currentWorkSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SectionTitle(title: "Current Work", subtitle: "Return to the note that already has momentum.")
+
+            Group {
+                if model.hasSavedSession {
+                    currentWorkCard(
+                        eyebrow: "Ready to resume",
+                        title: model.selectedDraftItem?.title ?? "Resume last session",
+                        detail: model.selectedWorkspace?.name ?? "Workspace",
+                        buttonTitle: "Resume Session",
+                        buttonSystemImage: "arrow.clockwise"
+                    ) {
+                        runModelTask(model) {
+                            try await model.resumeLastSession()
+                        }
+                    }
+                } else if let workspace = model.selectedWorkspace ?? model.workspaces.first {
+                    currentWorkCard(
+                        eyebrow: "Current workspace",
+                        title: workspace.name,
+                        detail: "Start a new note without leaving your workspace context.",
+                        buttonTitle: "Start New Note",
+                        buttonSystemImage: "plus"
+                    ) {
+                        runModelTask(model) {
+                            try await model.beginNewNote(in: workspace.id)
+                        }
+                    }
+                } else {
+                    currentWorkCard(
+                        eyebrow: "Fresh start",
+                        title: "Create your first workspace",
+                        detail: "Set up a workspace first, then move one note through the full Noter flow.",
+                        buttonTitle: "New Workspace",
+                        buttonSystemImage: "square.grid.2x2"
+                    ) {
+                        runModelTask(model) {
+                            _ = try await model.createWorkspace(named: "Untitled Workspace")
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -438,11 +494,11 @@ private struct DashboardHomeView: View {
         }
     }
 
-    private var workspaceGallery: some View {
+    private var supportingWorkspaceSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SectionTitle(title: "Workspace Gallery", subtitle: "Projects first, with recent drafts nested beneath them.")
+            SectionTitle(title: "Workspaces", subtitle: "Keep nearby project context visible without turning Home into another dashboard.")
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 18)], spacing: 18) {
-                ForEach(filteredWorkspaces) { workspace in
+                ForEach(filteredWorkspaces.prefix(3)) { workspace in
                     WorkspaceCard(workspace: workspace, draftCount: model.workspaceItems(in: workspace.id, kind: .draft).count) {
                         runModelTask(model) {
                             try await model.openWorkspace(workspace.id)
@@ -455,64 +511,69 @@ private struct DashboardHomeView: View {
 
     private var recentDrafts: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SectionTitle(title: "Recent Drafts", subtitle: "Title, last update, and summary preview for fast recognition.")
-            VStack(spacing: 12) {
-                ForEach(filteredDrafts) { draft in
-                    DraftRowCard(
-                        item: draft,
-                        action: {
-                            runModelTask(model) {
-                                try await model.openDraft(draft.id)
+            SectionTitle(title: "Recent Activity", subtitle: "Recent notes stay close so you can reopen them fast.")
+
+            if filteredDrafts.isEmpty {
+                Text("No recent notes yet. Start a new note to create your first active flow.")
+                    .foregroundStyle(.secondary)
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.82))
+                    .clipShape(RoundedRectangle(cornerRadius: 22))
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(filteredDrafts.prefix(5)) { draft in
+                        DraftRowCard(
+                            item: draft,
+                            action: {
+                                runModelTask(model) {
+                                    try await model.openDraft(draft.id)
+                                }
+                            },
+                            onDelete: {
+                                runModelTask(model) {
+                                    try await model.deleteWorkspaceItem(draft.id)
+                                }
                             }
-                        },
-                        onDelete: {
-                            runModelTask(model) {
-                                try await model.deleteWorkspaceItem(draft.id)
-                            }
-                        }
-                    )
+                        )
+                    }
                 }
             }
-            .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var templatePeek: some View {
+    private func currentWorkCard(
+        eyebrow: String,
+        title: String,
+        detail: String,
+        buttonTitle: String,
+        buttonSystemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            SectionTitle(title: "Templates", subtitle: "Structure and visual templates live together.")
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(model.templates.prefix(6)) { template in
-                    Button {
-                        model.selectedSidebarSection = .templates
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(template.name)
-                                    .font(.headline)
-                                Text(template.kind == .content ? "Content template" : "Visual template")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if template.scope == .user {
-                                Text("Saved")
-                                    .font(.caption.bold())
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(Color.accentColor.opacity(0.12))
-                                    .clipShape(Capsule())
-                            }
-                        }
-                        .padding(16)
-                        .background(Color.white.opacity(0.85))
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                    }
-                    .buttonStyle(.plain)
-                }
+            Text(eyebrow)
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                Text(detail)
+                    .foregroundStyle(.secondary)
             }
+
+            Button(action: action) {
+                Label(buttonTitle, systemImage: buttonSystemImage)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
         }
-        .frame(width: 360, alignment: .leading)
+        .padding(22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.84))
+        .clipShape(RoundedRectangle(cornerRadius: 28))
     }
 
     private var filteredWorkspaces: [Workspace] {
@@ -558,7 +619,6 @@ private struct WorkspacesSectionView: View {
 private struct WorkspaceDetailView: View {
     @Bindable var model: NotesCuratorAppModel
     let workspace: Workspace
-    @State private var selectedKind: WorkspaceItemKind = .draft
     @State private var showOlderItems = false
     @State private var showWorkspaceEditor = false
 
@@ -587,21 +647,7 @@ private struct WorkspaceDetailView: View {
                     .background(Color.white.opacity(0.62))
                     .clipShape(RoundedRectangle(cornerRadius: 28))
 
-                    HStack(alignment: .center, spacing: 12) {
-                        Picker("Category", selection: $selectedKind) {
-                            Text("Drafts").tag(WorkspaceItemKind.draft)
-                            Text("Notes").tag(WorkspaceItemKind.note)
-                            Text("Exports").tag(WorkspaceItemKind.export)
-                            Text("Templates").tag(WorkspaceItemKind.template)
-                        }
-                        .pickerStyle(.segmented)
-
-                        Spacer()
-
-                        Text(summaryLabel)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    workspaceStatusStrip
 
                     ResponsiveSplitLayout(
                         leadingMinWidth: 280,
@@ -619,8 +665,8 @@ private struct WorkspaceDetailView: View {
                             } else {
                                 if !recentItems.isEmpty {
                                     workspaceRailSection(
-                                        title: "Current Workspace Items",
-                                        subtitle: "Start from the freshest items first."
+                                        title: "Recent Notes",
+                                        subtitle: "The workspace shell stays light while your active note takes the main canvas."
                                     ) {
                                         VStack(spacing: 10) {
                                             ForEach(recentItems) { item in
@@ -643,7 +689,7 @@ private struct WorkspaceDetailView: View {
                                             VStack(alignment: .leading, spacing: 4) {
                                                 Text("Earlier in This Workspace")
                                                     .font(.headline)
-                                                Text("\(olderItems.count) older \(selectedKind == .draft ? "items" : selectedKind.rawValue)s kept out of the way until you need them.")
+                                                Text("\(olderItems.count) older drafts stay out of the way until you need to reopen them.")
                                                     .font(.caption)
                                                     .foregroundStyle(.secondary)
                                             }
@@ -729,39 +775,59 @@ private struct WorkspaceDetailView: View {
         .buttonStyle(.borderedProminent)
     }
 
-    private var workspaceItems: [WorkspaceItem] {
-        model.workspaceItems(in: workspace.id, kind: selectedKind)
+    private var workspaceStatusStrip: some View {
+        HStack(spacing: 10) {
+            InfoPill(title: "Drafts", value: "\(workspaceDrafts.count)")
+            InfoPill(
+                title: "Active Note",
+                value: selectedItem?.title ?? "None"
+            )
+            if let latestDraft = workspaceDrafts.first {
+                InfoPill(
+                    title: "Last Edited",
+                    value: latestDraft.lastEditedAt.formatted(date: .abbreviated, time: .shortened)
+                )
+            }
+            Spacer()
+            Text(summaryLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var workspaceDrafts: [WorkspaceItem] {
+        model.workspaceItems(in: workspace.id, kind: .draft)
     }
 
     private var selectedItem: WorkspaceItem? {
-        guard let item = model.selectedDraftItem, item.workspaceId == workspace.id, item.kind == selectedKind else {
+        guard let item = model.selectedDraftItem, item.workspaceId == workspace.id else {
             return nil
         }
         return item
     }
 
     private var nonSelectedItems: [WorkspaceItem] {
-        guard let selectedItem else { return workspaceItems }
-        return workspaceItems.filter { $0.id != selectedItem.id }
+        guard let selectedItem else { return workspaceDrafts }
+        return workspaceDrafts.filter { $0.id != selectedItem.id }
     }
 
     private var recentItems: [WorkspaceItem] {
-        Array(nonSelectedItems.prefix(selectedItem == nil ? 3 : 2))
+        Array(nonSelectedItems.prefix(selectedItem == nil ? 4 : 3))
     }
 
     private var olderItems: [WorkspaceItem] {
-        Array(nonSelectedItems.dropFirst(selectedItem == nil ? 3 : 2))
+        Array(nonSelectedItems.dropFirst(selectedItem == nil ? 4 : 3))
     }
 
     private var summaryLabel: String {
-        let count = workspaceItems.count
+        let count = workspaceDrafts.count
         if count == 0 {
-            return "No \(selectedKind.rawValue)s yet"
+            return "No drafts yet"
         }
         if count == 1 {
-            return "1 \(selectedKind.rawValue) in this workspace"
+            return "1 draft in this workspace"
         }
-        return "\(count) \(selectedKind.rawValue)s in this workspace"
+        return "\(count) drafts in this workspace"
     }
 
     private var workspaceFocusPanel: some View {
@@ -776,7 +842,7 @@ private struct WorkspaceDetailView: View {
             } else {
                 workspaceRailSection(
                     title: "Focus",
-                    subtitle: "Open or create a current \(selectedKind.rawValue) to keep the main canvas anchored."
+                    subtitle: "Open or create the note you're actively shaping so the workspace shell can stay quiet around it."
                 ) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Nothing is pinned yet")
@@ -803,7 +869,7 @@ private struct WorkspaceDetailView: View {
     private var workspaceHistoryRail: some View {
         workspaceRailSection(
             title: "In This Workspace",
-            subtitle: "Keep nearby items in one compact row while the active project stays centered."
+            subtitle: "Nearby drafts stay in a compact rail while the active note owns the canvas."
         ) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
@@ -958,9 +1024,19 @@ private struct WorkspaceFlowContainer: View {
     var fullHeight = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                FlowStageStrip(currentFlow: flow)
+        VStack(alignment: .leading, spacing: 18) {
+            FlowStageStrip(currentFlow: flow) { selectedStage in
+                guard let destination = FocusCanvasStageNavigation.destination(for: selectedStage, from: flow) else {
+                    return
+                }
+                switch destination {
+                case .editing:
+                    model.goBackToEditing()
+                case .preview:
+                    model.showPreview()
+                case .intake, .processing, .export:
+                    break
+                }
             }
 
             switch flow {
@@ -976,9 +1052,9 @@ private struct WorkspaceFlowContainer: View {
                 ExportPageView(model: model, fullHeight: fullHeight)
             }
         }
-        .padding(24)
+        .padding(28)
         .frame(maxWidth: .infinity, maxHeight: fullHeight ? .infinity : nil, alignment: .topLeading)
-        .background(Color.white.opacity(0.52))
+        .background(Color.white.opacity(0.56))
         .clipShape(RoundedRectangle(cornerRadius: 30))
     }
 }
@@ -1002,47 +1078,62 @@ private struct ProjectWorkspaceView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var projectHeader: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Button {
-                runModelTask(model) {
-                    try await model.showWorkspaceOverview()
-                }
-            } label: {
-                Label("Back to Workspace", systemImage: "chevron.left")
-            }
-            .buttonStyle(.bordered)
+    private var headerPresentation: FocusCanvasHeaderPresentation {
+        FocusCanvasHeaderPresentation(
+            workspaceName: workspace.name,
+            noteTitle: item.title,
+            showsLargeDuplicatedTitle: false
+        )
+    }
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(workspace.name)
-                    .font(.caption)
-                    .tracking(1.6)
-                    .foregroundStyle(.secondary)
-                Text(item.title)
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(1)
+    private var projectHeader: some View {
+        HStack(alignment: .center, spacing: 14) {
+            HStack(spacing: 10) {
+                Button {
+                    runModelTask(model) {
+                        try await model.showWorkspaceOverview()
+                    }
+                } label: {
+                    Label("Back to Workspace", systemImage: "chevron.left")
+                }
+                .buttonStyle(.bordered)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(headerPresentation.workspaceName)
+                        .font(.caption)
+                        .tracking(1.6)
+                        .foregroundStyle(.secondary)
+                    Text(headerPresentation.noteTitle)
+                        .font(.headline.weight(.semibold))
+                        .lineLimit(1)
+                }
             }
 
             Spacer()
 
-            Button {
-                toggleSidebar()
-            } label: {
-                Label(
-                    columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar",
-                    systemImage: columnVisibility == .detailOnly ? "sidebar.left" : "sidebar.left"
-                )
-            }
-            .buttonStyle(.bordered)
-
-            Button("New Note") {
-                runModelTask(model) {
-                    try await model.beginNewNote(in: workspace.id)
+            HStack(spacing: 10) {
+                Button {
+                    toggleSidebar()
+                } label: {
+                    Label(
+                        columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar",
+                        systemImage: "sidebar.left"
+                    )
                 }
+                .buttonStyle(.bordered)
+
+                Button("New Note") {
+                    runModelTask(model) {
+                        try await model.beginNewNote(in: workspace.id)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.borderedProminent)
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(Color.white.opacity(0.44))
+        .clipShape(RoundedRectangle(cornerRadius: 24))
     }
 
     private func toggleSidebar() {
@@ -1452,12 +1543,12 @@ private struct EditDocumentView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 16) {
-                            SectionTitle(title: editorDisplayTitle(fallback: version.structuredDoc.title), subtitle: "Focus on editing here, then open the dedicated preview page when you're ready.")
+                            SectionTitle(title: "Edit", subtitle: "Refine the current note here, then move into review when the structure feels right.")
                             Spacer()
                             editorActions
                         }
                         VStack(alignment: .leading, spacing: 16) {
-                            SectionTitle(title: editorDisplayTitle(fallback: version.structuredDoc.title), subtitle: "Focus on editing here, then open the dedicated preview page when you're ready.")
+                            SectionTitle(title: "Edit", subtitle: "Refine the current note here, then move into review when the structure feels right.")
                             editorActions
                         }
                     }
@@ -1475,7 +1566,7 @@ private struct EditDocumentView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Editor")
+                        Text("Document")
                             .font(.headline)
 
                         KeyboardFriendlyTextEditor(text: $editorText) {
@@ -1867,6 +1958,85 @@ private struct StableDocumentScrollView<Content: View>: View {
     }
 }
 
+private struct ReviewSurfaceScaffold<Document: View, Inspector: View>: View {
+    let title: String
+    let subtitle: String
+    let mode: ReviewSurfaceMode
+    let headerActions: FlowHeaderActionSet
+    let inspectorSubtitle: String
+    var fullHeight = false
+    let onSecondary: () -> Void
+    let onPrimary: () -> Void
+    @ViewBuilder let document: Document
+    @ViewBuilder let inspector: Inspector
+    @State private var showsInspector = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 16) {
+                SectionTitle(title: title, subtitle: subtitle)
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 10) {
+                    if ReviewSurfaceChrome.supportsInspectorCollapse(for: mode) {
+                        Button(showsInspector ? "Hide Controls" : "Show Controls") {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                showsInspector.toggle()
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    Button(headerActions.secondary, action: onSecondary)
+                        .buttonStyle(.bordered)
+
+                    Button(headerActions.primary, action: onPrimary)
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+
+            Group {
+                if showsInspector {
+                    ResponsiveSplitLayout(
+                        leadingMinWidth: 580,
+                        trailingMinWidth: 280,
+                        trailingFixedWidth: 280,
+                        spacing: 18
+                    ) {
+                        StableDocumentScrollView {
+                            document
+                        }
+                    } trailing: {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 16) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(mode.inspectorTitle)
+                                        .font(.caption.bold())
+                                        .foregroundStyle(.secondary)
+                                    Text(inspectorSubtitle)
+                                        .font(.headline)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                inspector
+                            }
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .frame(maxHeight: .infinity, alignment: .topLeading)
+                    }
+                } else {
+                    StableDocumentScrollView {
+                        document
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: fullHeight ? .infinity : nil, alignment: .topLeading)
+    }
+}
+
 private struct PreviewView: View {
     @Bindable var model: NotesCuratorAppModel
     @State private var format: ExportFormat = .markdown
@@ -1876,57 +2046,67 @@ private struct PreviewView: View {
     var body: some View {
         if let version = model.currentVersion {
             let previewVersion = version.previewVersion(visualTemplateName: selectedVisualTemplate)
-            VStack(alignment: .leading, spacing: 18) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 16) {
-                        SectionTitle(title: "Preview", subtitle: "Switch among note-friendly export formats before saving.")
-                        Spacer()
-                        previewFormatPicker
-                    }
-                    VStack(alignment: .leading, spacing: 16) {
-                        SectionTitle(title: "Preview", subtitle: "Switch among note-friendly export formats before saving.")
-                        previewFormatPicker
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    InfoPill(title: "Template", value: selectedVisualTemplate)
-                    InfoPill(title: "Language", value: version.outputLanguage == .chinese ? "中文" : "English")
-                    InfoPill(title: "Format", value: format.shortLabel)
-                }
-
-                ControlPanelCard(title: "Visual Template") {
-                    Picker("Visual Template", selection: $selectedVisualTemplate) {
-                        ForEach(model.visualTemplates, id: \.name) { template in
-                            Text(template.name).tag(template.name)
+            ReviewSurfaceScaffold(
+                title: "Preview",
+                subtitle: "Review the current note in its output form before saving anything.",
+                mode: .preview,
+                headerActions: FlowHeaderActionSet.actions(for: .preview) ?? .init(
+                    primary: ReviewSurfaceActionLabels.preview.primary,
+                    secondary: ReviewSurfaceActionLabels.preview.secondary,
+                    placement: .trailing
+                ),
+                inspectorSubtitle: "Adjust output appearance without covering the document.",
+                fullHeight: fullHeight,
+                onSecondary: {
+                    model.goBackToEditing()
+                },
+                onPrimary: {
+                    model.showExport()
+                },
+                document: {
+                    DraftPreviewSurface(version: previewVersion, format: format)
+                },
+                inspector: {
+                    CollapsibleControlPanelCard(
+                        title: "Document Summary",
+                        startsExpanded: previewInspectorState(for: "Document Summary")
+                    ) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            InfoPill(title: "Template", value: selectedVisualTemplate)
+                            InfoPill(title: "Language", value: version.outputLanguage == .chinese ? "中文" : "English")
+                            InfoPill(title: "Format", value: format.shortLabel)
                         }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
 
-                    Text("Change the color theme directly here if the original choice was wrong. Export will follow this selection.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                    CollapsibleControlPanelCard(
+                        title: "Format",
+                        startsExpanded: previewInspectorState(for: "Format")
+                    ) {
+                        previewFormatPicker
 
-                StableDocumentScrollView {
-                    DraftPreviewSurface(version: previewVersion, format: format)
-                }
-
-                HStack {
-                    Button("Back to Editing") {
-                        model.goBackToEditing()
+                        Text("Use the same rendering surface you see here when you continue to export.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.bordered)
 
-                    Spacer()
+                    CollapsibleControlPanelCard(
+                        title: "Visual Template",
+                        startsExpanded: previewInspectorState(for: "Visual Template")
+                    ) {
+                        Picker("Visual Template", selection: $selectedVisualTemplate) {
+                            ForEach(model.visualTemplates, id: \.name) { template in
+                                Text(template.name).tag(template.name)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
 
-                    Button("Continue to Export") {
-                        model.showExport()
+                        Text("Change the visual theme here. The export stage will keep this same selection.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.borderedProminent)
                 }
-            }
+            )
             .onAppear {
                 format = model.preferences.defaultExportFormat
                 selectedVisualTemplate = version.structuredDoc.exportMetadata.visualTemplateName
@@ -1952,6 +2132,13 @@ private struct PreviewView: View {
         .pickerStyle(.menu)
         .frame(width: 240)
     }
+
+    private func previewInspectorState(for title: String) -> Bool {
+        ReviewSurfaceChrome
+            .inspectorSections(for: .preview, hasExportResult: false)
+            .first(where: { $0.title == title })?
+            .startsExpanded ?? true
+    }
 }
 
 private struct ExportPageView: View {
@@ -1966,29 +2153,51 @@ private struct ExportPageView: View {
     var body: some View {
         if let version = model.currentVersion {
             let previewVersion = version.previewVersion(visualTemplateName: selectedVisualTemplate)
-            ResponsiveSplitLayout(
-                leadingMinWidth: 760,
-                trailingMinWidth: 320,
-                trailingFixedWidth: 320
-            ) {
-                VStack(alignment: .leading, spacing: 16) {
-                    SectionTitle(title: "Export Document", subtitle: "Large preview plus final export controls.")
-                    StableDocumentScrollView {
-                        if selectedFormat.usesSourcePreview {
-                            Text(exporter.previewText(draft: previewVersion, format: selectedFormat))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .font(.system(.body, design: .monospaced))
-                                .padding(28)
-                                .background(Color.white.opacity(0.96))
-                                .clipShape(RoundedRectangle(cornerRadius: 28))
-                        } else {
-                            StyledDraftPreview(version: previewVersion)
+            ReviewSurfaceScaffold(
+                title: "Export",
+                subtitle: "Confirm the exact output format and destination before saving the document.",
+                mode: .export,
+                headerActions: FlowHeaderActionSet.actions(for: .export) ?? .init(
+                    primary: ReviewSurfaceActionLabels.export.primary,
+                    secondary: ReviewSurfaceActionLabels.export.secondary,
+                    placement: .trailing
+                ),
+                inspectorSubtitle: "Finalize output details while keeping the rendered note in view.",
+                fullHeight: fullHeight,
+                onSecondary: {
+                    model.showPreview()
+                },
+                onPrimary: {
+                    exportToFolder()
+                },
+                document: {
+                    if selectedFormat.usesSourcePreview {
+                        Text(exporter.previewText(draft: previewVersion, format: selectedFormat))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .font(.system(.body, design: .monospaced))
+                            .padding(28)
+                            .background(Color.white.opacity(0.96))
+                            .clipShape(RoundedRectangle(cornerRadius: 28))
+                    } else {
+                        StyledDraftPreview(version: previewVersion)
+                    }
+                },
+                inspector: {
+                    CollapsibleControlPanelCard(
+                        title: "Document Summary",
+                        startsExpanded: exportInspectorState(for: "Document Summary")
+                    ) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            InfoPill(title: "Template", value: selectedVisualTemplate)
+                            InfoPill(title: "Language", value: version.outputLanguage == .chinese ? "中文" : "English")
+                            InfoPill(title: "Format", value: selectedFormat.shortLabel)
                         }
                     }
-                }
-            } trailing: {
-                VStack(alignment: .leading, spacing: 18) {
-                    ControlPanelCard(title: "Format") {
+
+                    CollapsibleControlPanelCard(
+                        title: "Format",
+                        startsExpanded: exportInspectorState(for: "Format")
+                    ) {
                         Picker("Format", selection: $selectedFormat) {
                             ForEach(ExportFormat.allCases, id: \.self) { option in
                                 Text(option.displayName).tag(option)
@@ -2002,7 +2211,10 @@ private struct ExportPageView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    ControlPanelCard(title: "Visual Template") {
+                    CollapsibleControlPanelCard(
+                        title: "Visual Template",
+                        startsExpanded: exportInspectorState(for: "Visual Template")
+                    ) {
                         Picker("Template", selection: $selectedVisualTemplate) {
                             ForEach(model.visualTemplates, id: \.name) { template in
                                 Text(template.name).tag(template.name)
@@ -2011,12 +2223,18 @@ private struct ExportPageView: View {
                         .labelsHidden()
                     }
 
-                    ControlPanelCard(title: "Current Output Language") {
+                    CollapsibleControlPanelCard(
+                        title: "Current Output Language",
+                        startsExpanded: exportInspectorState(for: "Current Output Language")
+                    ) {
                         Text(model.currentVersion?.outputLanguage == .chinese ? "中文" : "English")
                             .font(.headline)
                     }
 
-                    ControlPanelCard(title: "Export Readiness") {
+                    CollapsibleControlPanelCard(
+                        title: "Export Readiness",
+                        startsExpanded: exportInspectorState(for: "Export Readiness")
+                    ) {
                         VStack(alignment: .leading, spacing: 10) {
                             Label("Preview and export stay aligned through the same rendering layer.", systemImage: "checkmark.seal")
                             Label("Current draft supports Markdown, TXT, HTML, RTF, DOCX, and PDF output.", systemImage: "doc.richtext")
@@ -2026,7 +2244,10 @@ private struct ExportPageView: View {
                     }
 
                     if let exportResult {
-                        VStack(alignment: .leading, spacing: 10) {
+                        CollapsibleControlPanelCard(
+                            title: "Latest Export",
+                            startsExpanded: exportInspectorState(for: "Latest Export")
+                        ) {
                             Label(exportResult, systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(Color.green)
                             if let lastExportURL {
@@ -2038,50 +2259,65 @@ private struct ExportPageView: View {
                         }
                     }
 
-                    Button("Save Visual Template") {
-                        runModelTask(model) {
-                            try await model.saveUserTemplate(
-                                kind: .visual,
-                                name: "\(selectedVisualTemplate) Copy",
-                                config: ["source": selectedVisualTemplate]
-                            )
-                        }
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Export to Folder") {
-                        Task { @MainActor in
-                            if let directory = await presentOpenPanelURL(configure: { panel in
-                                panel.canChooseDirectories = true
-                                panel.canChooseFiles = false
-                                panel.allowsMultipleSelection = false
-                            }) {
-                                do {
-                                    if let url = try await model.exportCurrentDraft(
-                                        format: selectedFormat,
-                                        visualTemplateName: selectedVisualTemplate,
-                                        to: directory
-                                    ) {
-                                        exportResult = "Exported to \(url.lastPathComponent)"
-                                        lastExportURL = url
-                                    }
-                                } catch {
-                                    model.present(error: error)
-                                }
+                    CollapsibleControlPanelCard(
+                        title: "Save Template",
+                        startsExpanded: exportInspectorState(for: "Save Template")
+                    ) {
+                        Button("Save Visual Template") {
+                            runModelTask(model) {
+                                try await model.saveUserTemplate(
+                                    kind: .visual,
+                                    name: "\(selectedVisualTemplate) Copy",
+                                    config: ["source": selectedVisualTemplate]
+                                )
                             }
                         }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.borderedProminent)
-
-                    Button("Back to Preview") {
-                        model.showPreview()
-                    }
-                    .buttonStyle(.bordered)
                 }
-            }
+            )
             .onAppear {
                 selectedFormat = model.preferences.defaultExportFormat
                 selectedVisualTemplate = version.structuredDoc.exportMetadata.visualTemplateName
+            }
+            .onChange(of: version.structuredDoc.exportMetadata.visualTemplateName) { _, newValue in
+                selectedVisualTemplate = newValue
+            }
+            .onChange(of: selectedVisualTemplate) { _, newValue in
+                guard model.currentVersion?.structuredDoc.exportMetadata.visualTemplateName != newValue else { return }
+                runModelTask(model) {
+                    try await model.updateVisualTemplate(newValue)
+                }
+            }
+        }
+    }
+
+    private func exportInspectorState(for title: String) -> Bool {
+        ReviewSurfaceChrome
+            .inspectorSections(for: .export, hasExportResult: exportResult != nil)
+            .first(where: { $0.title == title })?
+            .startsExpanded ?? true
+    }
+
+    private func exportToFolder() {
+        Task { @MainActor in
+            if let directory = await presentOpenPanelURL(configure: { panel in
+                panel.canChooseDirectories = true
+                panel.canChooseFiles = false
+                panel.allowsMultipleSelection = false
+            }) {
+                do {
+                    if let url = try await model.exportCurrentDraft(
+                        format: selectedFormat,
+                        visualTemplateName: selectedVisualTemplate,
+                        to: directory
+                    ) {
+                        exportResult = "Exported to \(url.lastPathComponent)"
+                        lastExportURL = url
+                    }
+                } catch {
+                    model.present(error: error)
+                }
             }
         }
     }
@@ -3021,6 +3257,7 @@ private struct DraftRowCard: View {
     var onDelete: (() -> Void)?
     var isActive = false
     var compact = false
+    @State private var isHovering = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -3046,7 +3283,7 @@ private struct DraftRowCard: View {
 
                 Text(item.summaryPreview)
                     .foregroundStyle(.secondary)
-                    .lineLimit(compact ? 2 : 3)
+                    .lineLimit(presentation.summaryLineLimit)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -3060,6 +3297,9 @@ private struct DraftRowCard: View {
                 }
                 .buttonStyle(.plain)
                 .help(deleteHelpText)
+                .opacity(presentation.showsDangerAction ? 1 : 0)
+                .allowsHitTesting(presentation.showsDangerAction)
+                .animation(.easeInOut(duration: 0.16), value: presentation.showsDangerAction)
             }
         }
         .padding(compact ? 14 : 18)
@@ -3071,9 +3311,22 @@ private struct DraftRowCard: View {
                 .stroke(isActive ? Color.accentColor.opacity(0.28) : Color.clear, lineWidth: 1.2)
         )
         .contentShape(RoundedRectangle(cornerRadius: 22))
+        .onHover { hovering in
+            isHovering = hovering
+        }
         .onTapGesture {
             action?()
         }
+    }
+
+    private var presentation: DraftCardPresentation {
+        let base = compact
+            ? DraftCardPresentation.compactResting
+            : DraftCardPresentation(summaryLineLimit: 3, showsDangerAction: false)
+        return DraftCardPresentation(
+            summaryLineLimit: base.summaryLineLimit,
+            showsDangerAction: isHovering
+        )
     }
 
     private var deleteIconName: String {
@@ -3282,6 +3535,50 @@ private struct ControlPanelCard<Content: View>: View {
             Text(title)
                 .font(.headline)
             content
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+    }
+}
+
+private struct CollapsibleControlPanelCard<Content: View>: View {
+    let title: String
+    let startsExpanded: Bool
+    @ViewBuilder let content: Content
+    @State private var isExpanded: Bool
+
+    init(title: String, startsExpanded: Bool, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.startsExpanded = startsExpanded
+        self.content = content()
+        _isExpanded = State(initialValue: startsExpanded)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Text(title)
+                        .font(.headline)
+                    Spacer()
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                content
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -3664,24 +3961,53 @@ private struct ResponsiveSplitLayout<Leading: View, Trailing: View>: View {
 
 private struct FlowStageStrip: View {
     let currentFlow: WorkspaceFlowStage
-
-    private let orderedStages: [WorkspaceFlowStage] = [.intake, .processing, .editing, .preview, .export]
+    var onStageSelected: ((WorkspaceFlowStage) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 10) {
-            ForEach(orderedStages, id: \.self) { stage in
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(isReached(stage) ? Color.accentColor : Color.gray.opacity(0.25))
-                        .frame(width: 10, height: 10)
-                    Text(title(for: stage))
-                        .font(.caption.weight(isCurrent(stage) ? .bold : .medium))
-                        .foregroundStyle(isCurrent(stage) ? Color.accentColor : Color.secondary)
+        let items = FocusCanvasStageModel.items(currentFlow: currentFlow)
+
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(items, id: \.stage) { item in
+                    if item.isNavigable, let onStageSelected {
+                        Button {
+                            onStageSelected(item.stage)
+                        } label: {
+                            stageChip(for: item)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        stageChip(for: item)
+                    }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(isCurrent(stage) ? Color.accentColor.opacity(0.10) : Color.white.opacity(0.56))
-                .clipShape(Capsule())
+            }
+        }
+    }
+
+    private func stageChip(for item: FocusCanvasStageItem) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(accent(for: item.state))
+                .frame(width: 8, height: 8)
+
+            Text(title(for: item.stage))
+                .font(.caption.weight(item.state == .current ? .semibold : .medium))
+                .foregroundStyle(item.state == .current ? Color.accentColor : Color.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(background(for: item.state))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(border(for: item.state), lineWidth: item.state == .current ? 1 : 0)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(alignment: .bottomTrailing) {
+            if item.isNavigable {
+                Image(systemName: "arrow.uturn.backward.circle.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color.accentColor)
+                    .offset(x: 4, y: 4)
             }
         }
     }
@@ -3696,16 +4022,33 @@ private struct FlowStageStrip: View {
         }
     }
 
-    private func isReached(_ stage: WorkspaceFlowStage) -> Bool {
-        guard let stageIndex = orderedStages.firstIndex(of: stage),
-              let currentIndex = orderedStages.firstIndex(of: currentFlow) else {
-            return false
+    private func accent(for state: FocusCanvasStageState) -> Color {
+        switch state {
+        case .completed, .current:
+            return Color.accentColor
+        case .upcoming:
+            return Color.gray.opacity(0.28)
         }
-        return stageIndex <= currentIndex
     }
 
-    private func isCurrent(_ stage: WorkspaceFlowStage) -> Bool {
-        stage == currentFlow
+    private func background(for state: FocusCanvasStageState) -> Color {
+        switch state {
+        case .current:
+            return Color.accentColor.opacity(0.10)
+        case .completed:
+            return Color.white.opacity(0.76)
+        case .upcoming:
+            return Color.white.opacity(0.48)
+        }
+    }
+
+    private func border(for state: FocusCanvasStageState) -> Color {
+        switch state {
+        case .current:
+            return Color.accentColor.opacity(0.18)
+        case .completed, .upcoming:
+            return .clear
+        }
     }
 }
 
