@@ -30,4 +30,19 @@ struct WorkspacePresentationTests {
         #expect(ReviewSurfaceMode.preview.inspectorTitle == "Review")
         #expect(ReviewSurfaceMode.export.inspectorTitle == "Export")
     }
+
+    @Test
+    func workspaceShellRemovesLocalLibraryCategories() {
+        #expect(WorkspaceShellPolicy.showsLocalCategoryTabs == false)
+    }
+
+    @Test
+    func compactSidebarWorkspaceBadgeUsesShortUtilityCopy() {
+        let badge = SidebarWorkspaceBadgePresentation.compact(
+            workspaceName: "Research",
+            draftCount: 3
+        )
+        #expect(badge.title == "Research")
+        #expect(badge.detail == "3 drafts")
+    }
 }

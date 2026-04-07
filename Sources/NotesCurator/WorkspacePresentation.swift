@@ -36,6 +36,19 @@ struct DraftCardPresentation: Equatable {
     let showsDangerAction: Bool
 }
 
+enum WorkspaceShellPolicy {
+    static let showsLocalCategoryTabs = false
+}
+
+struct SidebarWorkspaceBadgePresentation: Equatable {
+    let title: String
+    let detail: String
+
+    static func compact(workspaceName: String, draftCount: Int) -> Self {
+        .init(title: workspaceName, detail: "\(draftCount) drafts")
+    }
+}
+
 enum HomeSurfacePolicy {
     static func defaultSections(hasSavedSession: Bool) -> [HomeSurfaceSection] {
         hasSavedSession ? [.resume, .recentActivity, .quickActions] : [.recentActivity, .quickActions]
