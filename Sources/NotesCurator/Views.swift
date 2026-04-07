@@ -333,20 +333,16 @@ private struct DashboardHomeView: View {
             VStack(alignment: .leading, spacing: 28) {
                 header
 
-                if bodySections.contains(.resume) {
-                    currentWorkSection
-                }
-
-                if bodySections.contains(.recentActivity) {
-                    recentDrafts
+                if bodySections.contains(.workspaces), !filteredWorkspaces.isEmpty {
+                    supportingWorkspaceSection
                 }
 
                 if bodySections.contains(.quickActions) {
                     quickActions
                 }
 
-                if !filteredWorkspaces.isEmpty {
-                    supportingWorkspaceSection
+                if bodySections.contains(.currentWork) {
+                    currentWorkSection
                 }
             }
             .padding(32)
@@ -2071,39 +2067,45 @@ private struct PreviewView: View {
                         title: "Document Summary",
                         startsExpanded: previewInspectorState(for: "Document Summary")
                     ) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            InfoPill(title: "Template", value: selectedVisualTemplate)
-                            InfoPill(title: "Language", value: version.outputLanguage == .chinese ? "中文" : "English")
-                            InfoPill(title: "Format", value: format.shortLabel)
-                        }
-                    }
+                        VStack(alignment: .leading, spacing: 18) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                InfoPill(title: "Template", value: selectedVisualTemplate)
+                                InfoPill(title: "Language", value: version.outputLanguage == .chinese ? "中文" : "English")
+                                InfoPill(title: "Format", value: format.shortLabel)
+                            }
 
-                    CollapsibleControlPanelCard(
-                        title: "Format",
-                        startsExpanded: previewInspectorState(for: "Format")
-                    ) {
-                        previewFormatPicker
+                            Divider()
 
-                        Text("Use the same rendering surface you see here when you continue to export.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Format")
+                                    .font(.subheadline.weight(.semibold))
 
-                    CollapsibleControlPanelCard(
-                        title: "Visual Template",
-                        startsExpanded: previewInspectorState(for: "Visual Template")
-                    ) {
-                        Picker("Visual Template", selection: $selectedVisualTemplate) {
-                            ForEach(model.visualTemplates, id: \.name) { template in
-                                Text(template.name).tag(template.name)
+                                previewFormatPicker
+
+                                Text("Use the same rendering surface you see here when you continue to export.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Divider()
+
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Visual Template")
+                                    .font(.subheadline.weight(.semibold))
+
+                                Picker("Visual Template", selection: $selectedVisualTemplate) {
+                                    ForEach(model.visualTemplates, id: \.name) { template in
+                                        Text(template.name).tag(template.name)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+
+                                Text("Change the visual theme here. The export stage will keep this same selection.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-
-                        Text("Change the visual theme here. The export stage will keep this same selection.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                 }
             )
@@ -2808,7 +2810,7 @@ private struct WorkspaceCustomizationSheet: View {
                             workspace: Workspace(
                                 id: workspace.id,
                                 name: name.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? workspace.name,
-                                subtitle: subtitle.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? workspace.subtitle,
+                                subtitle: WorkspaceCustomizationPresentation.resolvedSubtitle(subtitle),
                                 cover: cover,
                                 coverImagePath: coverImagePath,
                                 createdAt: workspace.createdAt,
@@ -2870,7 +2872,7 @@ private struct WorkspaceCustomizationSheet: View {
                         try await model.updateWorkspace(
                             workspace.id,
                             name: name.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? workspace.name,
-                            subtitle: subtitle.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? workspace.subtitle,
+                            subtitle: WorkspaceCustomizationPresentation.resolvedSubtitle(subtitle),
                             cover: cover,
                             coverImagePath: coverImagePath
                         )
@@ -3266,6 +3268,7 @@ private struct DraftRowCard: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(item.title)
                             .font(.headline)
+                            .lineLimit(presentation.titleLineLimit)
                         if item.status != .ready {
                             DraftStatusBadge(status: item.status)
                         }
@@ -3322,8 +3325,9 @@ private struct DraftRowCard: View {
     private var presentation: DraftCardPresentation {
         let base = compact
             ? DraftCardPresentation.compactResting
-            : DraftCardPresentation(summaryLineLimit: 3, showsDangerAction: false)
+            : DraftCardPresentation(titleLineLimit: 3, summaryLineLimit: 3, showsDangerAction: false)
         return DraftCardPresentation(
+            titleLineLimit: base.titleLineLimit,
             summaryLineLimit: base.summaryLineLimit,
             showsDangerAction: isHovering
         )

@@ -3,9 +3,9 @@ import Testing
 
 struct WorkspacePresentationTests {
     @Test
-    func homeSurfacePrefersResumeRecentAndQuickActions() {
+    func homeSurfacePrefersWorkspacesQuickActionsAndCurrentWork() {
         let sections = HomeSurfacePolicy.defaultSections(hasSavedSession: true)
-        #expect(sections == [.resume, .recentActivity, .quickActions])
+        #expect(sections == [.workspaces, .quickActions, .currentWork])
     }
 
     @Test
@@ -19,8 +19,8 @@ struct WorkspacePresentationTests {
 
     @Test
     func draftCardPresentationHidesDangerActionsUntilHover() {
-        let resting = DraftCardPresentation(summaryLineLimit: 2, showsDangerAction: false)
-        let hovered = DraftCardPresentation(summaryLineLimit: 2, showsDangerAction: true)
+        let resting = DraftCardPresentation(titleLineLimit: 3, summaryLineLimit: 2, showsDangerAction: false)
+        let hovered = DraftCardPresentation(titleLineLimit: 3, summaryLineLimit: 2, showsDangerAction: true)
         #expect(resting.showsDangerAction == false)
         #expect(hovered.showsDangerAction == true)
     }
@@ -78,6 +78,7 @@ struct WorkspacePresentationTests {
     func draftCardsClampSummaryToTwoLinesInCompactContexts() {
         let presentation = DraftCardPresentation.compactResting
         #expect(presentation.summaryLineLimit == 2)
+        #expect(presentation.titleLineLimit == 3)
     }
 
     @Test
@@ -102,8 +103,8 @@ struct WorkspacePresentationTests {
         let exportSections = ReviewSurfaceChrome.inspectorSections(for: .export, hasExportResult: true)
 
         #expect(ReviewSurfaceChrome.supportsInspectorCollapse(for: .preview))
-        #expect(previewSections.first(where: { $0.title == "Document Summary" })?.startsExpanded == false)
-        #expect(previewSections.first(where: { $0.title == "Format" })?.startsExpanded == true)
+        #expect(previewSections.map(\.title) == ["Document Summary"])
+        #expect(previewSections.first(where: { $0.title == "Document Summary" })?.startsExpanded == true)
         #expect(exportSections.first(where: { $0.title == "Latest Export" })?.startsExpanded == true)
     }
 
@@ -112,5 +113,11 @@ struct WorkspacePresentationTests {
         #expect(FocusCanvasStageNavigation.destination(for: .preview, from: .export) == .preview)
         #expect(FocusCanvasStageNavigation.destination(for: .editing, from: .preview) == .editing)
         #expect(FocusCanvasStageNavigation.destination(for: .intake, from: .export) == nil)
+    }
+
+    @Test
+    func workspaceCustomizationSubtitleAllowsExplicitEditsIncludingBlankValues() {
+        #expect(WorkspaceCustomizationPresentation.resolvedSubtitle("  New purpose  ") == "New purpose")
+        #expect(WorkspaceCustomizationPresentation.resolvedSubtitle("   ") == "")
     }
 }

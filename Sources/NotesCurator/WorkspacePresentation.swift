@@ -1,9 +1,9 @@
 import Foundation
 
 enum HomeSurfaceSection: Equatable {
-    case resume
-    case recentActivity
+    case workspaces
     case quickActions
+    case currentWork
 }
 
 enum FocusCanvasStageState: Equatable {
@@ -33,12 +33,13 @@ enum ReviewSurfaceMode: Equatable {
 }
 
 struct DraftCardPresentation: Equatable {
+    let titleLineLimit: Int
     let summaryLineLimit: Int
     let showsDangerAction: Bool
 }
 
 extension DraftCardPresentation {
-    static let compactResting = Self(summaryLineLimit: 2, showsDangerAction: false)
+    static let compactResting = Self(titleLineLimit: 3, summaryLineLimit: 2, showsDangerAction: false)
 }
 
 enum WorkspaceShellPolicy {
@@ -102,6 +103,12 @@ struct ReviewInspectorSection: Equatable {
     let startsExpanded: Bool
 }
 
+enum WorkspaceCustomizationPresentation {
+    static func resolvedSubtitle(_ rawValue: String) -> String {
+        rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 enum ReviewSurfaceChrome {
     static func supportsInspectorCollapse(for mode: ReviewSurfaceMode) -> Bool {
         switch mode {
@@ -114,9 +121,7 @@ enum ReviewSurfaceChrome {
         switch mode {
         case .preview:
             return [
-                .init(title: "Document Summary", startsExpanded: false),
-                .init(title: "Format", startsExpanded: true),
-                .init(title: "Visual Template", startsExpanded: false)
+                .init(title: "Document Summary", startsExpanded: true)
             ]
         case .export:
             var sections: [ReviewInspectorSection] = [
@@ -152,7 +157,8 @@ enum FocusCanvasStageNavigation {
 
 enum HomeSurfacePolicy {
     static func defaultSections(hasSavedSession: Bool) -> [HomeSurfaceSection] {
-        hasSavedSession ? [.resume, .recentActivity, .quickActions] : [.recentActivity, .quickActions]
+        _ = hasSavedSession
+        return [.workspaces, .quickActions, .currentWork]
     }
 }
 
