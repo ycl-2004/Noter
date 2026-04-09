@@ -7,14 +7,242 @@ enum TemplatePackDefaults {
         description: String = "",
         style: StyleKit? = nil
     ) -> TemplatePack {
+        let normalizedName = normalizedTemplateName(name)
+
         switch archetype {
         case .technicalNote:
+            if normalizedName == "summary" {
+                return summaryPack(
+                    named: name,
+                    description: resolvedDescription(description, fallback: "Fast condensation"),
+                    style: style ?? .summaryDefault
+                )
+            }
+            if normalizedName == "lecture notes" {
+                return lectureNotesPack(
+                    named: name,
+                    description: resolvedDescription(description, fallback: "Teaching-first structure"),
+                    style: style ?? .lectureNotesDefault
+                )
+            }
+            if normalizedName == "structured notes" {
+                return structuredNotesPack(
+                    named: name,
+                    description: resolvedDescription(description, fallback: "Balanced recall support"),
+                    style: style ?? .structuredNotesDefault
+                )
+            }
+            if normalizedName == "study guide" {
+                return studyGuidePack(
+                    named: name,
+                    description: resolvedDescription(description, fallback: "Review-first format"),
+                    style: style ?? .studyGuideDefault
+                )
+            }
+            if normalizedName == "technical deep dive" {
+                return technicalDeepDivePack(
+                    named: name,
+                    description: resolvedDescription(description, fallback: "Dense technical walkthrough"),
+                    style: style ?? .technicalDeepDiveDefault
+                )
+            }
             return technicalNotePack(named: name, description: description, style: style ?? .technicalNoteDefault)
         case .meetingBrief:
             return meetingBriefPack(named: name, description: description, style: style ?? .meetingBriefDefault)
         case .formalBrief:
+            if normalizedName == "formal document" {
+                return formalDocumentPack(
+                    named: name,
+                    description: resolvedDescription(description, fallback: "Polished stakeholder-ready document"),
+                    style: style ?? .formalDocumentDefault
+                )
+            }
             return formalBriefPack(named: name, description: description, style: style ?? .formalBriefDefault)
         }
+    }
+
+    static func summaryPack(
+        named name: String,
+        description: String = "Fast condensation",
+        style: StyleKit = .summaryDefault
+    ) -> TemplatePack {
+        TemplatePack(
+            identity: TemplatePackIdentity(name: name, description: description),
+            archetype: .technicalNote,
+            schema: RecommendedSchema(fields: [
+                RecommendedField(key: "summary_boxes", label: "One-Sentence Summary", requiredLevel: .coreRequired),
+                RecommendedField(key: "key_boxes", label: "Most Important Ideas", requiredLevel: .coreRequired),
+                RecommendedField(key: "sections", label: "Compressed Sections", requiredLevel: .preferredOptional),
+                RecommendedField(key: "code_boxes", label: "Formula Snapshots", requiredLevel: .preferredOptional),
+                RecommendedField(key: "warning_boxes", label: "Common Traps", requiredLevel: .preferredOptional),
+                RecommendedField(key: "result_boxes", label: "Final Takeaways", requiredLevel: .preferredOptional),
+            ]),
+            layout: LayoutSpec(blocks: [
+                TemplateBlockSpec(blockType: .summary, fieldBinding: "summary_boxes", titleOverride: "One-Sentence Summary", styleVariant: TemplateBlockStyleVariant.summary.rawValue),
+                TemplateBlockSpec(blockType: .keyPoints, fieldBinding: "key_boxes", titleOverride: "Most Important Ideas", styleVariant: TemplateBlockStyleVariant.key.rawValue),
+                TemplateBlockSpec(blockType: .section, fieldBinding: "sections", titleOverride: "Compressed Explanation", styleVariant: TemplateBlockStyleVariant.standard.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .callouts, fieldBinding: "code_boxes", titleOverride: "Formula Snapshot", styleVariant: TemplateBlockStyleVariant.code.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .warningBox, fieldBinding: "warning_boxes", titleOverride: "Mistakes to Avoid", styleVariant: TemplateBlockStyleVariant.warning.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .actionItems, fieldBinding: "result_boxes", titleOverride: "Final Takeaway", styleVariant: TemplateBlockStyleVariant.result.rawValue, emptyBehavior: .hidden),
+            ]),
+            style: style,
+            behavior: TemplateBehaviorRules(followsVisualTheme: true)
+        )
+    }
+
+    static func lectureNotesPack(
+        named name: String,
+        description: String = "Teaching-first structure",
+        style: StyleKit = .lectureNotesDefault
+    ) -> TemplatePack {
+        TemplatePack(
+            identity: TemplatePackIdentity(name: name, description: description),
+            archetype: .technicalNote,
+            schema: RecommendedSchema(fields: [
+                RecommendedField(key: "summary_boxes", label: "Lecture Overview", requiredLevel: .coreRequired),
+                RecommendedField(key: "key_boxes", label: "Key Concepts", requiredLevel: .preferredOptional),
+                RecommendedField(key: "sections", label: "Lecture Flow", requiredLevel: .templateRequired),
+                RecommendedField(key: "explanation_boxes", label: "Definition Boxes", requiredLevel: .preferredOptional),
+                RecommendedField(key: "example_boxes", label: "Example Boxes", requiredLevel: .preferredOptional),
+                RecommendedField(key: "warning_boxes", label: "Common Mistakes", requiredLevel: .preferredOptional),
+                RecommendedField(key: "exam_boxes", label: "Exam Tips", requiredLevel: .preferredOptional),
+                RecommendedField(key: "result_boxes", label: "Recap Boxes", requiredLevel: .preferredOptional),
+            ]),
+            layout: LayoutSpec(blocks: [
+                TemplateBlockSpec(blockType: .summary, fieldBinding: "summary_boxes", titleOverride: "Lecture Overview", styleVariant: TemplateBlockStyleVariant.summary.rawValue),
+                TemplateBlockSpec(blockType: .keyPoints, fieldBinding: "key_boxes", titleOverride: "Core Idea", styleVariant: TemplateBlockStyleVariant.key.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .section, fieldBinding: "sections", titleOverride: "Lecture Flow", styleVariant: TemplateBlockStyleVariant.standard.rawValue),
+                TemplateBlockSpec(blockType: .callouts, fieldBinding: "explanation_boxes", titleOverride: "Definition", styleVariant: TemplateBlockStyleVariant.summary.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .callouts, fieldBinding: "example_boxes", titleOverride: "Example", styleVariant: TemplateBlockStyleVariant.standard.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .warningBox, fieldBinding: "warning_boxes", titleOverride: "Common Mistake", styleVariant: TemplateBlockStyleVariant.warning.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .exercise, fieldBinding: "exam_boxes", titleOverride: "Exam Tip", styleVariant: TemplateBlockStyleVariant.exam.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .actionItems, fieldBinding: "result_boxes", titleOverride: "Quick Recap", styleVariant: TemplateBlockStyleVariant.result.rawValue, emptyBehavior: .hidden),
+            ]),
+            style: style,
+            behavior: TemplateBehaviorRules(followsVisualTheme: true)
+        )
+    }
+
+    static func studyGuidePack(
+        named name: String,
+        description: String = "Review-first format",
+        style: StyleKit = .studyGuideDefault
+    ) -> TemplatePack {
+        TemplatePack(
+            identity: TemplatePackIdentity(name: name, description: description),
+            archetype: .technicalNote,
+            schema: RecommendedSchema(fields: [
+                RecommendedField(key: "summary_boxes", label: "Exam Focus", requiredLevel: .coreRequired),
+                RecommendedField(key: "key_boxes", label: "Must-Know Concepts", requiredLevel: .preferredOptional),
+                RecommendedField(key: "sections", label: "Core Relationships", requiredLevel: .templateRequired),
+                RecommendedField(key: "code_boxes", label: "Formula Boxes", requiredLevel: .preferredOptional),
+                RecommendedField(key: "warning_boxes", label: "Exam Traps", requiredLevel: .preferredOptional),
+                RecommendedField(key: "exam_boxes", label: "Practice Prompts", requiredLevel: .preferredOptional),
+                RecommendedField(key: "result_boxes", label: "Revision Checklists", requiredLevel: .preferredOptional),
+            ]),
+            layout: LayoutSpec(blocks: [
+                TemplateBlockSpec(blockType: .summary, fieldBinding: "summary_boxes", titleOverride: "What This Study Guide Covers", styleVariant: TemplateBlockStyleVariant.summary.rawValue),
+                TemplateBlockSpec(blockType: .keyPoints, fieldBinding: "key_boxes", titleOverride: "Must-Know Concepts", styleVariant: TemplateBlockStyleVariant.key.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .section, fieldBinding: "sections", titleOverride: "Core Relationships", styleVariant: TemplateBlockStyleVariant.standard.rawValue),
+                TemplateBlockSpec(blockType: .callouts, fieldBinding: "code_boxes", titleOverride: "Formula Set", styleVariant: TemplateBlockStyleVariant.code.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .warningBox, fieldBinding: "warning_boxes", titleOverride: "Most Common Mistakes", styleVariant: TemplateBlockStyleVariant.warning.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .exercise, fieldBinding: "exam_boxes", titleOverride: "Short Answer Practice", styleVariant: TemplateBlockStyleVariant.exam.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .actionItems, fieldBinding: "result_boxes", titleOverride: "Before the Exam", styleVariant: TemplateBlockStyleVariant.result.rawValue, emptyBehavior: .hidden),
+            ]),
+            style: style,
+            behavior: TemplateBehaviorRules(followsVisualTheme: true)
+        )
+    }
+
+    static func structuredNotesPack(
+        named name: String,
+        description: String = "Balanced recall support",
+        style: StyleKit = .structuredNotesDefault
+    ) -> TemplatePack {
+        TemplatePack(
+            identity: TemplatePackIdentity(name: name, description: description),
+            archetype: .technicalNote,
+            schema: RecommendedSchema(fields: [
+                RecommendedField(key: "summary_boxes", label: "Document Scope", requiredLevel: .coreRequired),
+                RecommendedField(key: "key_boxes", label: "Key Insights", requiredLevel: .preferredOptional),
+                RecommendedField(key: "sections", label: "Sections", requiredLevel: .templateRequired),
+                RecommendedField(key: "explanation_boxes", label: "Note Boxes", requiredLevel: .preferredOptional),
+                RecommendedField(key: "example_boxes", label: "Example Boxes", requiredLevel: .preferredOptional),
+                RecommendedField(key: "warning_boxes", label: "Warnings", requiredLevel: .preferredOptional),
+                RecommendedField(key: "result_boxes", label: "Section Summaries", requiredLevel: .preferredOptional),
+            ]),
+            layout: LayoutSpec(blocks: [
+                TemplateBlockSpec(blockType: .summary, fieldBinding: "summary_boxes", titleOverride: "Document Scope", styleVariant: TemplateBlockStyleVariant.summary.rawValue),
+                TemplateBlockSpec(blockType: .keyPoints, fieldBinding: "key_boxes", titleOverride: "Key Insight", styleVariant: TemplateBlockStyleVariant.key.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .section, fieldBinding: "sections", styleVariant: TemplateBlockStyleVariant.standard.rawValue),
+                TemplateBlockSpec(blockType: .callouts, fieldBinding: "explanation_boxes", titleOverride: "Important Note", styleVariant: TemplateBlockStyleVariant.summary.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .callouts, fieldBinding: "example_boxes", titleOverride: "Application", styleVariant: TemplateBlockStyleVariant.standard.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .warningBox, fieldBinding: "warning_boxes", titleOverride: "Clarification", styleVariant: TemplateBlockStyleVariant.warning.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .actionItems, fieldBinding: "result_boxes", titleOverride: "Section Summary", styleVariant: TemplateBlockStyleVariant.result.rawValue, emptyBehavior: .hidden),
+            ]),
+            style: style,
+            behavior: TemplateBehaviorRules(followsVisualTheme: true)
+        )
+    }
+
+    static func technicalDeepDivePack(
+        named name: String,
+        description: String = "Dense technical walkthrough",
+        style: StyleKit = .technicalDeepDiveDefault
+    ) -> TemplatePack {
+        TemplatePack(
+            identity: TemplatePackIdentity(name: name, description: description),
+            archetype: .technicalNote,
+            schema: RecommendedSchema(fields: [
+                RecommendedField(key: "summary_boxes", label: "Primary Goal", requiredLevel: .coreRequired),
+                RecommendedField(key: "key_boxes", label: "Core Insights", requiredLevel: .preferredOptional),
+                RecommendedField(key: "sections", label: "Execution Flow", requiredLevel: .templateRequired),
+                RecommendedField(key: "explanation_boxes", label: "System Boxes", requiredLevel: .preferredOptional),
+                RecommendedField(key: "code_boxes", label: "Implementation Notes", requiredLevel: .preferredOptional),
+                RecommendedField(key: "warning_boxes", label: "Pitfalls", requiredLevel: .preferredOptional),
+                RecommendedField(key: "example_boxes", label: "Edge Cases", requiredLevel: .preferredOptional),
+                RecommendedField(key: "result_boxes", label: "Final Takeaways", requiredLevel: .preferredOptional),
+            ]),
+            layout: LayoutSpec(blocks: [
+                TemplateBlockSpec(blockType: .summary, fieldBinding: "summary_boxes", titleOverride: "Primary Goal", styleVariant: TemplateBlockStyleVariant.summary.rawValue),
+                TemplateBlockSpec(blockType: .keyPoints, fieldBinding: "key_boxes", titleOverride: "One-Sentence Core Insight", styleVariant: TemplateBlockStyleVariant.key.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .callouts, fieldBinding: "explanation_boxes", titleOverride: "System Box", styleVariant: TemplateBlockStyleVariant.summary.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .section, fieldBinding: "sections", titleOverride: "Deep Dive", styleVariant: TemplateBlockStyleVariant.standard.rawValue),
+                TemplateBlockSpec(blockType: .callouts, fieldBinding: "code_boxes", titleOverride: "Implementation Outline", styleVariant: TemplateBlockStyleVariant.code.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .warningBox, fieldBinding: "warning_boxes", titleOverride: "Things That Commonly Go Wrong", styleVariant: TemplateBlockStyleVariant.warning.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .exercise, fieldBinding: "example_boxes", titleOverride: "Edge Cases to Consider", styleVariant: TemplateBlockStyleVariant.exam.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .actionItems, fieldBinding: "result_boxes", titleOverride: "Ultimate Summary", styleVariant: TemplateBlockStyleVariant.result.rawValue, emptyBehavior: .hidden),
+            ]),
+            style: style,
+            behavior: TemplateBehaviorRules(followsVisualTheme: true)
+        )
+    }
+
+    static func formalDocumentPack(
+        named name: String,
+        description: String = "Polished stakeholder-ready document",
+        style: StyleKit = .formalDocumentDefault
+    ) -> TemplatePack {
+        TemplatePack(
+            identity: TemplatePackIdentity(name: name, description: description),
+            archetype: .formalBrief,
+            schema: RecommendedSchema(fields: [
+                RecommendedField(key: "overview", label: "Executive Summary", requiredLevel: .coreRequired),
+                RecommendedField(key: "sections", label: "Main Body", requiredLevel: .templateRequired),
+                RecommendedField(key: "key_boxes", label: "Key Points", requiredLevel: .preferredOptional),
+                RecommendedField(key: "result_boxes", label: "Recommendations", requiredLevel: .preferredOptional),
+                RecommendedField(key: "explanation_boxes", label: "Purpose Callouts", requiredLevel: .preferredOptional),
+            ]),
+            layout: LayoutSpec(blocks: [
+                TemplateBlockSpec(blockType: .summary, fieldBinding: "overview", titleOverride: "Executive Summary", styleVariant: TemplateBlockStyleVariant.summary.rawValue),
+                TemplateBlockSpec(blockType: .callouts, fieldBinding: "explanation_boxes", titleOverride: "Purpose", styleVariant: TemplateBlockStyleVariant.summary.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .section, fieldBinding: "sections", styleVariant: TemplateBlockStyleVariant.standard.rawValue),
+                TemplateBlockSpec(blockType: .keyPoints, fieldBinding: "key_boxes", titleOverride: "Key Points", styleVariant: TemplateBlockStyleVariant.key.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .actionItems, fieldBinding: "result_boxes", titleOverride: "Conclusion", styleVariant: TemplateBlockStyleVariant.result.rawValue, emptyBehavior: .hidden),
+            ]),
+            style: style,
+            behavior: TemplateBehaviorRules(followsVisualTheme: true)
+        )
     }
 
     static func technicalNotePack(
@@ -141,6 +369,7 @@ enum TemplatePackDefaults {
             secondaryHex: pack.style.secondaryHex,
             boxStyles: pack.style.boxStyles
         )
+        pack.behavior.followsVisualTheme = false
 
         // Imported templates should behave like the source layout:
         // if a box has matching content we render it, otherwise we omit it.
@@ -154,7 +383,49 @@ enum TemplatePackDefaults {
     }
 }
 
+extension TemplatePackDefaults {
+    static func semanticThemedStyle(
+        theme: DocumentTheme,
+        preserving baseStyle: StyleKit
+    ) -> StyleKit {
+        let adaptiveStyles = StyleKit.defaultBoxStyles(
+            accentHex: theme.accentHex,
+            surfaceHex: theme.surfaceHex,
+            borderHex: theme.borderHex,
+            secondaryHex: theme.secondaryHex
+        )
+        let adaptiveByVariant = Dictionary(uniqueKeysWithValues: adaptiveStyles.map { ($0.variant, $0) })
+        var mergedByVariant = Dictionary(uniqueKeysWithValues: baseStyle.boxStyles.map { ($0.variant, $0) })
+
+        for variant in [TemplateBlockStyleVariant.standard, .summary, .key, .exam] {
+            if let adaptive = adaptiveByVariant[variant] {
+                mergedByVariant[variant] = adaptive
+            }
+        }
+
+        for variant in TemplateBlockStyleVariant.allCases where mergedByVariant[variant] == nil {
+            mergedByVariant[variant] = adaptiveByVariant[variant]
+        }
+
+        return StyleKit(
+            accentHex: theme.accentHex,
+            surfaceHex: theme.surfaceHex,
+            borderHex: theme.borderHex,
+            secondaryHex: theme.secondaryHex,
+            boxStyles: TemplateBlockStyleVariant.allCases.compactMap { mergedByVariant[$0] }
+        )
+    }
+}
+
 private extension TemplatePackDefaults {
+    static func normalizedTemplateName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    static func resolvedDescription(_ description: String, fallback: String) -> String {
+        description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : description
+    }
+
     static func importedLayout(from fingerprint: SourceFingerprint) -> LayoutSpec {
         var blocks: [TemplateBlockSpec] = []
         var seenBindings: Set<String> = []
@@ -304,7 +575,7 @@ private extension TemplatePackDefaults {
     }
 }
 
-private extension StyleKit {
+extension StyleKit {
     static let technicalNoteDefault = StyleKit(
         accentHex: "#2E5AAC",
         surfaceHex: "#F6F9FF",
@@ -342,6 +613,153 @@ private extension StyleKit {
             borderHex: "#E8D9BD",
             secondaryHex: "#8B7756"
         )
+    )
+
+    static let lectureNotesDefault = StyleKit(
+        accentHex: "#3D5A80",
+        surfaceHex: "#EAF2FB",
+        borderHex: "#D6E2F0",
+        secondaryHex: "#6E7D94",
+        boxStyles: defaultBoxStyles(
+            accentHex: "#3D5A80",
+            surfaceHex: "#EAF2FB",
+            borderHex: "#D6E2F0",
+            secondaryHex: "#6E7D94"
+        )
+    )
+
+    static let summaryDefault = StyleKit(
+        accentHex: "#2E5AAC",
+        surfaceHex: "#F5F7FB",
+        borderHex: "#D6DEEE",
+        secondaryHex: "#5B6573",
+        boxStyles: {
+            var styles = defaultBoxStyles(
+                accentHex: "#2E5AAC",
+                surfaceHex: "#F5F7FB",
+                borderHex: "#D6DEEE",
+                secondaryHex: "#5B6573"
+            )
+            if let index = styles.firstIndex(where: { $0.variant == .code }) {
+                styles[index] = TemplateBoxStyle(
+                    variant: .code,
+                    borderHex: "#4F8A63",
+                    backgroundHex: "#EEF8F2",
+                    titleBackgroundHex: "#DFF0E5",
+                    titleTextHex: "#2E6A40",
+                    bodyTextHex: "#1F3D2A"
+                )
+            }
+            if let index = styles.firstIndex(where: { $0.variant == .result }) {
+                styles[index] = TemplateBoxStyle(
+                    variant: .result,
+                    borderHex: "#2E5AAC",
+                    backgroundHex: "#EEF4FF",
+                    titleBackgroundHex: "#DDE8FF",
+                    titleTextHex: "#234985",
+                    bodyTextHex: "#1E2A36"
+                )
+            }
+            return styles
+        }()
+    )
+
+    static let structuredNotesDefault = StyleKit(
+        accentHex: "#2F4858",
+        surfaceHex: "#F7F9FC",
+        borderHex: "#D9E2EC",
+        secondaryHex: "#6B7280",
+        boxStyles: defaultBoxStyles(
+            accentHex: "#2F4858",
+            surfaceHex: "#F7F9FC",
+            borderHex: "#D9E2EC",
+            secondaryHex: "#6B7280"
+        )
+    )
+
+    static let studyGuideDefault = StyleKit(
+        accentHex: "#2E5AAC",
+        surfaceHex: "#F5F7FB",
+        borderHex: "#D6DEEE",
+        secondaryHex: "#5B6573",
+        boxStyles: {
+            var styles = defaultBoxStyles(
+                accentHex: "#2E5AAC",
+                surfaceHex: "#F5F7FB",
+                borderHex: "#D6DEEE",
+                secondaryHex: "#5B6573"
+            )
+            if let index = styles.firstIndex(where: { $0.variant == .code }) {
+                styles[index] = TemplateBoxStyle(
+                    variant: .code,
+                    borderHex: "#4F8A63",
+                    backgroundHex: "#EEF8F2",
+                    titleBackgroundHex: "#DFF0E5",
+                    titleTextHex: "#2E6A40",
+                    bodyTextHex: "#1F3D2A"
+                )
+            }
+            if let index = styles.firstIndex(where: { $0.variant == .result }) {
+                styles[index] = TemplateBoxStyle(
+                    variant: .result,
+                    borderHex: "#C98E22",
+                    backgroundHex: "#FFF8E8",
+                    titleBackgroundHex: "#F8EAC0",
+                    titleTextHex: "#8A6110",
+                    bodyTextHex: "#4A3920"
+                )
+            }
+            return styles
+        }()
+    )
+
+    static let formalDocumentDefault = StyleKit(
+        accentHex: "#294C60",
+        surfaceHex: "#FAFBFC",
+        borderHex: "#D9D9D9",
+        secondaryHex: "#666666",
+        boxStyles: defaultBoxStyles(
+            accentHex: "#294C60",
+            surfaceHex: "#FAFBFC",
+            borderHex: "#D9D9D9",
+            secondaryHex: "#666666"
+        )
+    )
+
+    static let technicalDeepDiveDefault = StyleKit(
+        accentHex: "#2E5AAC",
+        surfaceHex: "#F5F7FB",
+        borderHex: "#D6DEEE",
+        secondaryHex: "#5B6573",
+        boxStyles: {
+            var styles = defaultBoxStyles(
+                accentHex: "#2E5AAC",
+                surfaceHex: "#F5F7FB",
+                borderHex: "#D6DEEE",
+                secondaryHex: "#5B6573"
+            )
+            if let index = styles.firstIndex(where: { $0.variant == .code }) {
+                styles[index] = TemplateBoxStyle(
+                    variant: .code,
+                    borderHex: "#D9DFEA",
+                    backgroundHex: "#F8F9FC",
+                    titleBackgroundHex: "#EEF1F6",
+                    titleTextHex: "#5B6573",
+                    bodyTextHex: "#1E2A36"
+                )
+            }
+            if let index = styles.firstIndex(where: { $0.variant == .result }) {
+                styles[index] = TemplateBoxStyle(
+                    variant: .result,
+                    borderHex: "#4F8A63",
+                    backgroundHex: "#EEF8F2",
+                    titleBackgroundHex: "#DFF0E5",
+                    titleTextHex: "#2E6A40",
+                    bodyTextHex: "#1F3D2A"
+                )
+            }
+            return styles
+        }()
     )
 
     static func defaultBoxStyles(

@@ -395,7 +395,14 @@ extension DraftVersion {
     func resolvedTemplatePackForRendering() throws -> TemplatePack {
         if let storedPackData = structuredDoc.exportMetadata.contentTemplatePackData,
            let storedPack = try? JSONDecoder().decode(TemplatePack.self, from: storedPackData) {
-            return storedPack
+            var themedStoredPack = storedPack
+            if storedPack.behavior.followsVisualTheme {
+                themedStoredPack.style = TemplatePackDefaults.semanticThemedStyle(
+                    theme: DocumentTheme.named(structuredDoc.exportMetadata.visualTemplateName),
+                    preserving: storedPack.style
+                )
+            }
+            return themedStoredPack
         }
 
         let basePack = try Template.builtinContentTemplate(
@@ -407,7 +414,10 @@ extension DraftVersion {
         )
 
         var themedPack = basePack
-        themedPack.style = StyleKit(theme: DocumentTheme.named(structuredDoc.exportMetadata.visualTemplateName))
+        themedPack.style = TemplatePackDefaults.semanticThemedStyle(
+            theme: DocumentTheme.named(structuredDoc.exportMetadata.visualTemplateName),
+            preserving: basePack.style
+        )
         return themedPack
     }
 
@@ -457,17 +467,6 @@ private extension GoalType {
         case .summary, .structuredNotes:
             return .technicalNote
         }
-    }
-}
-
-private extension StyleKit {
-    init(theme: DocumentTheme) {
-        self.init(
-            accentHex: theme.accentHex,
-            surfaceHex: theme.surfaceHex,
-            borderHex: theme.borderHex,
-            secondaryHex: theme.secondaryHex
-        )
     }
 }
 

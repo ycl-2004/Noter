@@ -252,9 +252,14 @@ struct StyleKit: Codable, Equatable, Sendable {
 
 struct TemplateBehaviorRules: Codable, Equatable, Sendable {
     var placeholderPrefix: String
+    var followsVisualTheme: Bool
 
-    init(placeholderPrefix: String = "Add") {
+    init(
+        placeholderPrefix: String = "Add",
+        followsVisualTheme: Bool = false
+    ) {
         self.placeholderPrefix = placeholderPrefix
+        self.followsVisualTheme = followsVisualTheme
     }
 }
 
@@ -340,16 +345,21 @@ enum LegacyTemplatePackAdapter {
 }
 
 extension Template {
-    static func packBacked(_ pack: TemplatePack, scope: TemplateScope) -> Template {
+    static func packBacked(
+        _ pack: TemplatePack,
+        scope: TemplateScope,
+        goalType: GoalType? = nil,
+        templateDescription: String? = nil
+    ) -> Template {
         Template(
             kind: .content,
             scope: scope,
             name: pack.identity.name,
             subtitle: pack.identity.description,
-            templateDescription: "Pack-backed template",
+            templateDescription: templateDescription ?? (pack.identity.description.isEmpty ? "Pack-backed template" : pack.identity.description),
             format: .markdownTemplate,
             body: "",
-            config: ["template_pack": "v1", "goal": pack.legacyGoalType.rawValue],
+            config: ["template_pack": "v1", "goal": (goalType ?? pack.legacyGoalType).rawValue],
             storedPackData: try? JSONEncoder().encode(pack)
         )
     }

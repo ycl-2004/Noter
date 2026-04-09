@@ -7,10 +7,38 @@ struct TemplatePackModelsTests {
     func technicalNoteArchetypeExposesExpectedCoreFields() {
         let pack = TemplatePackDefaults.pack(for: .technicalNote, named: "Lecture Notes")
 
-        #expect(pack.schema.fields.filter { $0.requiredLevel == .coreRequired }.map(\.key).contains("overview"))
+        #expect(pack.behavior.followsVisualTheme)
+        #expect(pack.schema.fields.filter { $0.requiredLevel == .coreRequired }.map(\.key).contains("summary_boxes"))
+        #expect(pack.layout.blocks.contains(where: { $0.fieldBinding == "example_boxes" }))
         #expect(pack.layout.blocks.contains(where: { $0.blockType == .warningBox }))
         #expect(pack.layout.blocks.first(where: { $0.blockType == .summary })?.styleVariant == TemplateBlockStyleVariant.summary.rawValue)
         #expect(pack.layout.blocks.first(where: { $0.blockType == .keyPoints })?.styleVariant == TemplateBlockStyleVariant.key.rawValue)
+    }
+
+    @Test
+    func formalDocumentPresetUsesThemeResponsiveMinimalLayout() {
+        let pack = TemplatePackDefaults.pack(for: .formalBrief, named: "Formal Document")
+
+        #expect(pack.behavior.followsVisualTheme)
+        #expect(pack.layout.blocks.map(\.fieldBinding).contains("overview"))
+        #expect(pack.layout.blocks.map(\.fieldBinding).contains("sections"))
+        #expect(pack.layout.blocks.map(\.fieldBinding).contains("result_boxes"))
+        #expect(pack.layout.blocks.map(\.fieldBinding).contains("explanation_boxes"))
+    }
+
+    @Test
+    func summaryAndStudyGuidePresetsExposeDetailedBoxBuckets() {
+        let summaryPack = TemplatePackDefaults.pack(for: .technicalNote, named: "Summary")
+        let studyPack = TemplatePackDefaults.pack(for: .technicalNote, named: "Study Guide")
+        let deepDivePack = TemplatePackDefaults.pack(for: .technicalNote, named: "Technical Deep Dive")
+
+        #expect(summaryPack.layout.blocks.map(\.fieldBinding).contains("code_boxes"))
+        #expect(summaryPack.layout.blocks.map(\.fieldBinding).contains("warning_boxes"))
+        #expect(studyPack.layout.blocks.map(\.fieldBinding).contains("exam_boxes"))
+        #expect(studyPack.layout.blocks.map(\.fieldBinding).contains("result_boxes"))
+        #expect(deepDivePack.layout.blocks.map(\.fieldBinding).contains("explanation_boxes"))
+        #expect(deepDivePack.layout.blocks.map(\.fieldBinding).contains("example_boxes"))
+        #expect(deepDivePack.layout.blocks.map(\.fieldBinding).contains("code_boxes"))
     }
 
     @Test
@@ -19,7 +47,8 @@ struct TemplatePackModelsTests {
         let pack = try legacy.templatePack()
 
         #expect(pack.identity.name == "Study Guide")
-        #expect(pack.schema.fields.contains(where: { $0.key == "overview" }))
+        #expect(pack.schema.fields.contains(where: { $0.key == "summary_boxes" }))
+        #expect(pack.layout.blocks.contains(where: { $0.fieldBinding == "exam_boxes" }))
     }
 
     @Test

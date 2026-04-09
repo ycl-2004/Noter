@@ -1123,7 +1123,8 @@ final class NotesCuratorAppModel {
                     templateDescription: template.templateDescription,
                     format: template.format,
                     body: template.body,
-                    config: template.config
+                    config: template.config,
+                    storedPackData: template.storedPackData
                 )
                 try await repository.save(template: refreshed)
                 templates[index] = refreshed

@@ -82,4 +82,17 @@ struct TemplatePackRenderingTests {
         #expect(rendered.blocks.count == 1)
         #expect(rendered.blocks.first?.body == "The imported summary should still render even without an explicit summary box.")
     }
+
+    @Test
+    func semanticThemeKeepsWarningPaletteButUpdatesAccentDrivenBoxes() {
+        let base = StyleKit.lectureNotesDefault
+        let theme = DocumentTheme.named("Graphite")
+        let themed = TemplatePackDefaults.semanticThemedStyle(theme: theme, preserving: base)
+
+        #expect(themed.accentHex == theme.accentHex)
+        #expect(themed.boxStyles.first(where: { $0.variant == .key })?.titleBackgroundHex == theme.accentHex)
+        #expect(themed.boxStyles.first(where: { $0.variant == .summary })?.borderHex == theme.borderHex)
+        #expect(themed.boxStyles.first(where: { $0.variant == .warning })?.titleBackgroundHex == base.boxStyles.first(where: { $0.variant == .warning })?.titleBackgroundHex)
+        #expect(themed.boxStyles.first(where: { $0.variant == .result })?.titleBackgroundHex == base.boxStyles.first(where: { $0.variant == .result })?.titleBackgroundHex)
+    }
 }

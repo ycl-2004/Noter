@@ -466,8 +466,8 @@ extension Template {
             subtitle: "Custom markdown template",
             templateDescription: "Author a custom layout in the Template Library.",
             format: .markdownTemplate,
-            body: structuredNotesTemplate.body,
-            config: structuredNotesTemplate.config
+            body: legacyStructuredNotesTemplate.body,
+            config: legacyStructuredNotesTemplate.config
         )
     }
 
@@ -508,7 +508,7 @@ extension Template {
         }
 
         return try MarkdownTemplate.parse(
-            Template.structuredNotesTemplate.body,
+            Template.legacyStructuredNotesTemplate.body,
             defaultGoal: fallbackGoal ?? configuredGoalType,
             defaultSampleDataKey: defaultSampleDataKey
         )
@@ -525,7 +525,18 @@ extension Template {
         }
     }
 
-    fileprivate static let summaryTemplate = Template(
+    fileprivate static let summaryTemplate = Template.packBacked(
+        TemplatePackDefaults.pack(
+            for: .technicalNote,
+            named: "Summary",
+            description: "Fast condensation"
+        ),
+        scope: .system,
+        goalType: .summary,
+        templateDescription: "Quick, high-signal summary template with boxed takeaways, formulas, and traps."
+    )
+
+    fileprivate static let legacySummaryTemplate = Template(
         kind: .content,
         scope: .system,
         name: "Summary",
@@ -564,7 +575,34 @@ extension Template {
         ]
     )
 
-    fileprivate static let structuredNotesTemplate = Template(
+    fileprivate static let structuredNotesTemplate = Template.packBacked(
+        TemplatePackDefaults.pack(
+            for: .technicalNote,
+            named: "Structured Notes",
+            description: "Balanced recall support"
+        ),
+        scope: .system
+    )
+
+    fileprivate static let lectureNotesTemplate = Template.packBacked(
+        TemplatePackDefaults.pack(
+            for: .technicalNote,
+            named: "Lecture Notes",
+            description: "Teaching-first structure"
+        ),
+        scope: .system
+    )
+
+    fileprivate static let formalDocumentTemplate = Template.packBacked(
+        TemplatePackDefaults.pack(
+            for: .formalBrief,
+            named: "Formal Document",
+            description: "Polished stakeholder-ready document"
+        ),
+        scope: .system
+    )
+
+    fileprivate static let legacyStructuredNotesTemplate = Template(
         kind: .content,
         scope: .system,
         name: "Structured Notes",
@@ -619,7 +657,7 @@ extension Template {
         ]
     )
 
-    fileprivate static let lectureNotesTemplate = Template(
+    fileprivate static let legacyLectureNotesTemplate = Template(
         kind: .content,
         scope: .system,
         name: "Lecture Notes",
@@ -661,7 +699,18 @@ extension Template {
         ]
     )
 
-    fileprivate static let studyGuideTemplate = Template(
+    fileprivate static let studyGuideTemplate = Template.packBacked(
+        TemplatePackDefaults.pack(
+            for: .technicalNote,
+            named: "Study Guide",
+            description: "Review-first format"
+        ),
+        scope: .system,
+        goalType: .structuredNotes,
+        templateDescription: "Exam-oriented study guide with concepts, formulas, traps, practice prompts, and revision checklists."
+    )
+
+    fileprivate static let legacyStudyGuideTemplate = Template(
         kind: .content,
         scope: .system,
         name: "Study Guide",
@@ -717,7 +766,18 @@ extension Template {
         ]
     )
 
-    fileprivate static let technicalDeepDiveTemplate = Template(
+    fileprivate static let technicalDeepDiveTemplate = Template.packBacked(
+        TemplatePackDefaults.pack(
+            for: .technicalNote,
+            named: "Technical Deep Dive",
+            description: "Dense technical walkthrough"
+        ),
+        scope: .system,
+        goalType: .formalDocument,
+        templateDescription: "Detailed technical walkthrough with system boxes, implementation notes, pitfalls, edge cases, and final takeaways."
+    )
+
+    fileprivate static let legacyTechnicalDeepDiveTemplate = Template(
         kind: .content,
         scope: .system,
         name: "Technical Deep Dive",
@@ -767,7 +827,7 @@ extension Template {
         ]
     )
 
-    fileprivate static let formalDocumentTemplate = Template(
+    fileprivate static let legacyFormalDocumentTemplate = Template(
         kind: .content,
         scope: .system,
         name: "Formal Document",

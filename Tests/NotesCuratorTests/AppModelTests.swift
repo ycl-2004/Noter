@@ -5,7 +5,7 @@ import Testing
 @MainActor
 struct AppModelTests {
     @Test
-    func systemContentTemplatesUseMarkdownBodiesWithDistinctLayouts() async throws {
+    func primarySystemContentTemplatesUsePackBackedDefaults() async throws {
         let repository = MemoryRepository()
         let pipeline = DocumentProcessingPipeline(
             parser: StubParser(parsed: ParsedDocument(text: "", sources: [], images: [])),
@@ -15,14 +15,27 @@ struct AppModelTests {
         let model = NotesCuratorAppModel(repository: repository, pipeline: pipeline)
         try await model.load()
 
-        let action = try #require(model.contentTemplates.first(where: { $0.name == "Action Items" }))
+        let summary = try #require(model.contentTemplates.first(where: { $0.name == "Summary" }))
+        let structured = try #require(model.contentTemplates.first(where: { $0.name == "Structured Notes" }))
+        let lecture = try #require(model.contentTemplates.first(where: { $0.name == "Lecture Notes" }))
+        let studyGuide = try #require(model.contentTemplates.first(where: { $0.name == "Study Guide" }))
+        let deepDive = try #require(model.contentTemplates.first(where: { $0.name == "Technical Deep Dive" }))
         let formal = try #require(model.contentTemplates.first(where: { $0.name == "Formal Document" }))
+        let action = try #require(model.contentTemplates.first(where: { $0.name == "Action Items" }))
 
-        #expect(action.format == .markdownTemplate)
-        #expect(formal.format == .markdownTemplate)
-        #expect(action.body != formal.body)
+        #expect(summary.storedPackData != nil)
+        #expect(structured.storedPackData != nil)
+        #expect(lecture.storedPackData != nil)
+        #expect(studyGuide.storedPackData != nil)
+        #expect(deepDive.storedPackData != nil)
+        #expect(formal.storedPackData != nil)
+        #expect(summary.body.isEmpty)
+        #expect(structured.body.isEmpty)
+        #expect(lecture.body.isEmpty)
+        #expect(studyGuide.body.isEmpty)
+        #expect(deepDive.body.isEmpty)
+        #expect(formal.body.isEmpty)
         #expect(action.body.contains("Next Steps"))
-        #expect(formal.body.contains("Context"))
     }
 
     @Test
