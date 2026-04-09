@@ -5,6 +5,197 @@ import Testing
 @MainActor
 struct AppModelTests {
     @Test
+    func systemContentTemplatesUseMarkdownBodiesWithDistinctLayouts() async throws {
+        let repository = MemoryRepository()
+        let pipeline = DocumentProcessingPipeline(
+            parser: StubParser(parsed: ParsedDocument(text: "", sources: [], images: [])),
+            primaryProvider: StubProvider(isHealthy: true, response: .empty)
+        )
+
+        let model = NotesCuratorAppModel(repository: repository, pipeline: pipeline)
+        try await model.load()
+
+        let action = try #require(model.contentTemplates.first(where: { $0.name == "Action Items" }))
+        let formal = try #require(model.contentTemplates.first(where: { $0.name == "Formal Document" }))
+
+        #expect(action.format == .markdownTemplate)
+        #expect(formal.format == .markdownTemplate)
+        #expect(action.body != formal.body)
+        #expect(action.body.contains("Next Steps"))
+        #expect(formal.body.contains("Context"))
+    }
+
+    @Test
+    func userContentTemplateOverrideShadowsSystemPresetAcrossReloads() async throws {
+        let repository = MemoryRepository()
+        let pipeline = DocumentProcessingPipeline(
+            parser: StubParser(parsed: ParsedDocument(text: "", sources: [], images: [])),
+            primaryProvider: StubProvider(isHealthy: true, response: .empty)
+        )
+
+        let model = NotesCuratorAppModel(repository: repository, pipeline: pipeline)
+        try await model.load()
+
+        let systemTemplate = try #require(model.contentTemplates.first(where: { $0.name == "Action Items" }))
+        let override = Template(
+            kind: .content,
+            scope: .user,
+            name: systemTemplate.name,
+            subtitle: "Customized execution-first structure",
+            templateDescription: "Keeps the same preset name but uses a custom markdown body.",
+            format: .markdownTemplate,
+            body: systemTemplate.body.replacingOccurrences(of: "## Next Steps", with: "## Priority Actions"),
+            config: systemTemplate.config
+        )
+
+        try await model.saveTemplate(override)
+
+        let visibleTemplate = try #require(model.contentTemplates.first(where: { $0.name == systemTemplate.name }))
+        #expect(visibleTemplate.id == override.id)
+        #expect(model.templates.contains(where: { $0.id == systemTemplate.id }))
+        #expect(model.templates.contains(where: { $0.id == override.id }))
+
+        let reloadedModel = NotesCuratorAppModel(repository: repository, pipeline: pipeline)
+        try await reloadedModel.load()
+
+        let reloadedVisibleTemplate = try #require(reloadedModel.contentTemplates.first(where: { $0.name == systemTemplate.name }))
+        #expect(reloadedVisibleTemplate.id == override.id)
+        #expect(reloadedModel.templates.contains(where: { $0.scope == .system && $0.name == systemTemplate.name }))
+        #expect(reloadedModel.templates.contains(where: { $0.scope == .user && $0.name == systemTemplate.name }))
+    }
+
+    @Test
+    func appModelPrefersPackBackedOverrideOverLegacySystemTemplate() async throws {
+        let model = try await loadedModelWithReadyDraft()
+        let imported = Template.packBacked(
+            TemplatePackDefaults.pack(for: .technicalNote, named: "Structured Notes"),
+            scope: .user
+        )
+
+        try await model.saveTemplate(imported)
+
+        #expect(
+            try model.contentTemplates
+                .first(where: { $0.name == "Structured Notes" })?
+                .templatePack()
+                .identity
+                .name == "Structured Notes"
+        )
+    }
+
+    @Test
+    func appModelStoresImportReviewStateBeforeSavingTemplate() async throws {
+        let model = NotesCuratorAppModel(
+            repository: MemoryRepository(),
+            pipeline: DocumentProcessingPipeline(
+                parser: StubParser(parsed: ParsedDocument(text: "", sources: [], images: [])),
+                primaryProvider: StubProvider(isHealthy: true, response: .empty)
+            )
+        )
+        try await model.load()
+
+        try model.beginLatexTemplateImport(SampleLatexSources.technicalNote)
+
+        #expect(model.pendingTemplateImportReview != nil)
+        #expect(model.pendingTemplateImportReview?.templatePack.identity.name.isEmpty == false)
+    }
+
+    @Test
+    func appModelCanSavePendingImportedTemplate() async throws {
+        let model = NotesCuratorAppModel(
+            repository: MemoryRepository(),
+            pipeline: DocumentProcessingPipeline(
+                parser: StubParser(parsed: ParsedDocument(text: "", sources: [], images: [])),
+                primaryProvider: StubProvider(isHealthy: true, response: .empty)
+            )
+        )
+        try await model.load()
+        try model.beginLatexTemplateImport(SampleLatexSources.technicalNote)
+
+        let saved = try await model.savePendingTemplateImport()
+
+        #expect(saved?.scope == .user)
+        #expect(model.pendingTemplateImportReview == nil)
+        #expect(model.contentTemplates.contains(where: { $0.name == saved?.name }))
+    }
+
+    @Test
+    func builderLiteCanReorderBlocksRenameTitlesAndChangeEmptyBehavior() async throws {
+        let model = try await loadedModelWithImportedPack()
+        let initial = try #require(model.editingTemplatePack)
+        let renamedBlockID = initial.layout.blocks[0].id
+        let movedBlockID = initial.layout.blocks[3].id
+
+        model.moveEditingTemplateBlock(from: 3, to: 1)
+        model.renameEditingTemplateBlock(renamedBlockID, to: "Quick Summary")
+        model.setEditingTemplateEmptyBehavior(
+            renamedBlockID,
+            authoring: .placeholder,
+            preview: .hide,
+            export: .hide
+        )
+
+        let updated = try #require(model.editingTemplatePack)
+        #expect(updated.layout.blocks[1].id == movedBlockID)
+        #expect(updated.layout.blocks.first(where: { $0.id == renamedBlockID })?.titleOverride == "Quick Summary")
+        #expect(updated.layout.blocks.first(where: { $0.id == renamedBlockID })?.emptyBehavior.preview == .hide)
+        #expect(updated.layout.blocks.first(where: { $0.id == renamedBlockID })?.emptyBehavior.export == .hide)
+    }
+
+    @Test
+    func processingUsesImportedPackWhenTemplateIsSelected() async throws {
+        let repository = MemoryRepository()
+        let pipeline = DocumentProcessingPipeline(
+            parser: StubParser(
+                parsed: ParsedDocument(
+                    text: "Discussed launch sequencing, owners, and the follow-up plan.",
+                    sources: [SourceReference(kind: .pastedText, title: "Input", excerpt: "Discussed launch sequencing...")],
+                    images: []
+                )
+            ),
+            primaryProvider: StubProvider(
+                isHealthy: true,
+                response: ProviderDraftResponse(
+                    title: "Imported Pack Draft",
+                    summary: "Imported pack summary.",
+                    keyPoints: ["Pack-specific structure"],
+                    sections: [StructuredSection(title: "Overview", body: "Imported pack body.")],
+                    actionItems: ["Assign the owner"],
+                    renderedDocument: "provider markdown should be ignored"
+                )
+            )
+        )
+
+        let model = NotesCuratorAppModel(repository: repository, pipeline: pipeline)
+        try await model.load()
+
+        var pack = TemplatePackDefaults.pack(for: .technicalNote, named: "Imported Technical Template")
+        pack.layout.blocks = [
+            TemplateBlockSpec(blockType: .summary, fieldBinding: "overview"),
+            TemplateBlockSpec(blockType: .actionItems, fieldBinding: "action_items", titleOverride: "Follow Through")
+        ]
+        let imported = Template.packBacked(pack, scope: .user)
+        try await model.saveTemplate(imported)
+
+        let workspace = try await model.createWorkspace(named: "Imported Processing")
+        try await model.processNewNote(
+            in: workspace.id,
+            intake: IntakeRequest(
+                pastedText: "Discussed launch sequencing, owners, and the follow-up plan.",
+                fileURLs: [],
+                goalType: .structuredNotes,
+                outputLanguage: .english,
+                contentTemplateName: imported.name,
+                visualTemplateName: "Oceanic Blue"
+            )
+        )
+
+        #expect(model.currentVersion?.structuredDoc.exportMetadata.contentTemplateName == imported.name)
+        #expect(model.currentVersion?.structuredDoc.exportMetadata.contentTemplatePackData != nil)
+        #expect(model.currentVersion?.editorDocument.contains("## Follow Through") == true)
+    }
+
+    @Test
     func appModelCreatesWorkspaceProcessesDraftAndRestoresLastSession() async throws {
         let repository = MemoryRepository()
         let pipeline = DocumentProcessingPipeline(
@@ -56,6 +247,32 @@ struct AppModelTests {
         try await model.resumeLastSession()
         #expect(model.selectedWorkspace?.id == workspace.id)
         #expect(model.currentFlow == .editing)
+    }
+
+    @Test
+    func selectingDifferentContentTemplateDoesNotAutoRegenerateCurrentDraft() async throws {
+        let model = try await loadedModelWithReadyDraft()
+        let originalDocument = try #require(model.currentVersion?.editorDocument)
+        let studyGuide = try #require(model.contentTemplates.first(where: { $0.name == "Study Guide" }))
+
+        try await model.updateSelectedContentTemplate(studyGuide.id)
+
+        #expect(model.currentVersion?.editorDocument == originalDocument)
+        #expect(model.currentVersion?.structuredDoc.exportMetadata.contentTemplateID == studyGuide.id)
+        #expect(model.currentVersion?.structuredDoc.exportMetadata.renderedContentTemplateID != studyGuide.id)
+    }
+
+    @Test
+    func regenerateCurrentDraftUsesPersistedGenerationSourceText() async throws {
+        let model = try await loadedModelWithReadyDraft()
+        let actionItems = try #require(model.contentTemplates.first(where: { $0.name == "Action Items" }))
+
+        try await model.updateSelectedContentTemplate(actionItems.id)
+        try await model.regenerateCurrentDraftWithSelectedTemplate()
+
+        #expect(model.currentVersion?.editorDocument.contains("Next Steps") == true)
+        #expect(model.currentVersion?.structuredDoc.exportMetadata.renderedContentTemplateID == actionItems.id)
+        #expect(model.currentVersion?.generationSourceText != nil)
     }
 
     @Test
@@ -1017,6 +1234,62 @@ private final class MemoryRepository: CuratorRepository, @unchecked Sendable {
         let filtered = values.filter { $0.id != value.id }
         return filtered + [value]
     }
+}
+
+@MainActor
+private func loadedModelWithReadyDraft() async throws -> NotesCuratorAppModel {
+    let repository = MemoryRepository()
+    let pipeline = DocumentProcessingPipeline(
+        parser: StubParser(
+            parsed: ParsedDocument(
+                text: "Discussed launch sequencing, owners, and the follow-up plan.",
+                sources: [SourceReference(kind: .pastedText, title: "Input", excerpt: "Discussed launch sequencing...")],
+                images: []
+            )
+        ),
+        primaryProvider: StubProvider(
+            isHealthy: true,
+            response: ProviderDraftResponse(
+                title: "Launch Planning Note",
+                summary: "The team aligned on sequencing, ownership, and follow-up.",
+                cueQuestions: ["What should happen first?"],
+                keyPoints: ["Ownership is now clearer."],
+                sections: [StructuredSection(title: "Context", body: "The team needs a cleaner rollout sequence.")],
+                actionItems: ["Assign owners", "Track deadlines"],
+                renderedDocument: "provider text that should not be the source of truth"
+            )
+        )
+    )
+
+    let model = NotesCuratorAppModel(repository: repository, pipeline: pipeline)
+    try await model.load()
+    let workspace = try await model.createWorkspace(named: "Template Switching")
+    try await model.processNewNote(
+        in: workspace.id,
+        intake: IntakeRequest(
+            pastedText: "Discussed launch sequencing, owners, and the follow-up plan.",
+            fileURLs: [],
+            goalType: .structuredNotes,
+            outputLanguage: .english,
+            contentTemplateName: "Structured Notes",
+            visualTemplateName: "Oceanic Blue"
+        )
+    )
+    return model
+}
+
+@MainActor
+private func loadedModelWithImportedPack() async throws -> NotesCuratorAppModel {
+    let model = NotesCuratorAppModel(
+        repository: MemoryRepository(),
+        pipeline: DocumentProcessingPipeline(
+            parser: StubParser(parsed: ParsedDocument(text: "", sources: [], images: [])),
+            primaryProvider: StubProvider(isHealthy: true, response: .empty)
+        )
+    )
+    try await model.load()
+    try model.beginLatexTemplateImport(SampleLatexSources.technicalNote)
+    return model
 }
 
 private struct ThrowingProvider: ProviderAdapter {

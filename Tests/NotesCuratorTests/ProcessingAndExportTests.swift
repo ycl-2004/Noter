@@ -62,9 +62,99 @@ struct ProcessingAndExportTests {
         #expect(draft.workspaceItemId == itemID)
         #expect(draft.outputLanguage == .chinese)
         #expect(draft.structuredDoc.title == "产品会议纪要")
-        #expect(draft.editorDocument.contains("摘要"))
+        #expect(draft.editorDocument.contains("# 产品会议纪要"))
         #expect(draft.imageSuggestions.count == 1)
         #expect(draft.imageSuggestions.first?.title == "Budget Slide")
+    }
+
+    @Test
+    func processingUsesLocalTemplateRendererInsteadOfProviderRenderedDocument() async throws {
+        let provider = StubProvider(
+            isHealthy: true,
+            response: ProviderDraftResponse(
+                title: "Action Plan",
+                summary: "Task-first summary",
+                keyPoints: ["Keep the next steps visible."],
+                sections: [StructuredSection(title: "Context", body: "The team needs a cleaner rollout sequence.")],
+                actionItems: ["Assign owners", "Track deadlines"],
+                renderedDocument: "provider freeform markdown that should be ignored"
+            )
+        )
+
+        let pipeline = DocumentProcessingPipeline(
+            parser: StubParser(
+                parsed: ParsedDocument(
+                    text: "source",
+                    sources: [],
+                    images: []
+                )
+            ),
+            primaryProvider: provider
+        )
+
+        let result = try await pipeline.process(
+            intake: IntakeRequest(
+                pastedText: "source",
+                fileURLs: [],
+                goalType: .actionItems,
+                outputLanguage: .english,
+                contentTemplateName: "Action Items",
+                visualTemplateName: "Oceanic Blue"
+            ),
+            workspaceItemId: UUID()
+        )
+
+        #expect(result.editorDocument != "provider freeform markdown that should be ignored")
+        #expect(result.editorDocument.contains("Next Steps"))
+    }
+
+    @Test
+    func processingUsesPackBackedTemplateForEditorOutput() async throws {
+        let provider = StubProvider(
+            isHealthy: true,
+            response: ProviderDraftResponse(
+                title: "Imported Template Draft",
+                summary: "Imported pack summary",
+                keyPoints: ["Keep the imported pack layout"],
+                sections: [StructuredSection(title: "Overview", body: "Imported pack body")],
+                actionItems: ["Assign the owner"],
+                renderedDocument: "provider markdown should be ignored"
+            )
+        )
+
+        let pipeline = DocumentProcessingPipeline(
+            parser: StubParser(
+                parsed: ParsedDocument(
+                    text: "source",
+                    sources: [],
+                    images: []
+                )
+            ),
+            primaryProvider: provider
+        )
+
+        var pack = TemplatePackDefaults.pack(for: .technicalNote, named: "Imported Technical Template")
+        pack.layout.blocks = [
+            TemplateBlockSpec(blockType: .summary, fieldBinding: "overview"),
+            TemplateBlockSpec(blockType: .actionItems, fieldBinding: "action_items", titleOverride: "Follow Through")
+        ]
+        let importedTemplate = Template.packBacked(pack, scope: .user)
+
+        let result = try await pipeline.process(
+            intake: IntakeRequest(
+                pastedText: "source",
+                fileURLs: [],
+                goalType: .structuredNotes,
+                outputLanguage: .english,
+                contentTemplateName: "Imported Technical Template",
+                visualTemplateName: "Oceanic Blue"
+            ),
+            workspaceItemId: UUID(),
+            contentTemplate: importedTemplate
+        )
+
+        #expect(result.editorDocument.contains("## Follow Through"))
+        #expect(result.structuredDoc.exportMetadata.contentTemplatePackData != nil)
     }
 
     @Test
@@ -242,7 +332,7 @@ struct ProcessingAndExportTests {
         #expect(chunkRequests.count > 1)
         #expect(repairDrafts.count == 1)
         #expect(draft.structuredDoc.title == "repair-validated")
-        #expect(draft.editorDocument.contains("Validated by repair"))
+        #expect(draft.structuredDoc.keyPoints.contains("validated:repair"))
     }
 
     @Test
@@ -300,7 +390,7 @@ struct ProcessingAndExportTests {
         #expect(finalRequests.count == 1)
         #expect(polishDrafts.count == 1)
         #expect(repairDrafts.count == 1)
-        #expect(draft.editorDocument.contains("Validated by repair"))
+        #expect(draft.structuredDoc.keyPoints.contains("validated:repair"))
     }
 
     @Test
@@ -364,7 +454,37 @@ struct ProcessingAndExportTests {
             workspaceItemId: UUID(),
             goalType: .formalDocument,
             outputLanguage: .english,
-            editorDocument: "Executive Summary\nRevenue grew 24% year over year.",
+            editorDocument: """
+            # Project Strategy
+
+            > Revenue grew while operations stayed efficient.
+
+            ## Cue Questions
+            - What explains the revenue growth?
+
+            ## Executive Summary
+            Revenue grew 24% year over year.
+
+            ## Key Points
+            - Revenue up 24%
+            - Operations efficient
+
+            ### Main takeaway
+            Growth came without operational sprawl.
+
+            ## Glossary
+            - **YoY**: Year over year.
+
+            ## Study Cards
+            - Q: What explains the revenue growth?
+            - A: The note ties growth to stronger execution while keeping operations efficient.
+
+            ## Review Questions
+            - Which efficiency metrics support the strategy?
+
+            ## Action Items
+            - Share strategy update
+            """,
             structuredDoc: StructuredDocument(
                 title: "Project Strategy",
                 summary: "Revenue grew while operations stayed efficient.",
@@ -436,12 +556,137 @@ struct ProcessingAndExportTests {
         #expect(markdown.contains("## Study Cards"))
         #expect(markdown.contains("Q: What explains the revenue growth?"))
         #expect(markdown.contains("## Review Questions"))
-        #expect(markdown.contains("## Callouts"))
         #expect(FileManager.default.fileExists(atPath: docxURL.path))
         #expect(FileManager.default.fileExists(atPath: rtfURL.path))
         #expect(pdfSize != 0)
         #expect(pdfDocument.pageCount >= 1)
         #expect(firstPage.bounds(for: .mediaBox).width > 700)
         #expect(firstPage.bounds(for: .mediaBox).height > 1000)
+    }
+
+    @Test
+    @MainActor
+    func htmlExportUsesPackRendererWhenEditorDocumentIsEmpty() throws {
+        let draft = DraftVersion(
+            workspaceItemId: UUID(),
+            goalType: .structuredNotes,
+            outputLanguage: .english,
+            editorDocument: "",
+            structuredDoc: .fixture(
+                title: "Pack Rendered Export",
+                summary: "Rendered from structured content.",
+                keyPoints: ["Pack-specific key point"],
+                sections: [StructuredSection(title: "Overview", body: "Structured fallback body.")],
+                exportMetadata: ExportMetadata(
+                    contentTemplateName: "Structured Notes",
+                    visualTemplateName: "Graphite",
+                    preferredFormat: .html
+                )
+            ),
+            sourceRefs: [],
+            imageSuggestions: []
+        )
+
+        let html = ExportCoordinator().previewText(draft: draft, format: .html)
+
+        #expect(html.contains("Pack Rendered Export"))
+        #expect(html.contains("Pack-specific key point"))
+        #expect(html.contains("--accent: #2A3347"))
+    }
+
+    @Test
+    @MainActor
+    func exportUsesPackStyleKitForImportedTemplates() throws {
+        var pack = TemplatePackDefaults.pack(for: .technicalNote, named: "Imported Technical Template")
+        pack.style = StyleKit(
+            accentHex: "#2E5AAC",
+            surfaceHex: "#F7F9FC",
+            borderHex: "#D6E2FF",
+            secondaryHex: "#5B6F9A"
+        )
+        let importedTemplate = Template.packBacked(pack, scope: .user)
+
+        let draft = DraftVersion(
+            workspaceItemId: UUID(),
+            goalType: .structuredNotes,
+            outputLanguage: .english,
+            editorDocument: "",
+            structuredDoc: .fixture(
+                title: "Imported Export",
+                summary: "Styled by the imported pack.",
+                keyPoints: ["Imported pack key point"],
+                exportMetadata: ExportMetadata(
+                    contentTemplateID: importedTemplate.id,
+                    contentTemplateName: importedTemplate.name,
+                    contentTemplatePackData: importedTemplate.storedPackData,
+                    visualTemplateName: "Bloom",
+                    preferredFormat: .html
+                )
+            ),
+            sourceRefs: [],
+            imageSuggestions: []
+        )
+
+        let html = ExportCoordinator().previewText(draft: draft, format: .html)
+
+        #expect(html.contains("--accent: #2E5AAC"))
+        #expect(html.contains("Imported pack key point"))
+    }
+
+    @Test
+    func providerPromptIncludesGenerationHintAndRequestedBlocks() {
+        let template = Template.builtinContentTemplate(named: "Action Items", goalType: .actionItems)
+        let guidance = providerPromptTemplateGuidance(
+            template: template,
+            usedBlocks: [.actionItems, .sections]
+        )
+
+        #expect(guidance.contains("Next Steps"))
+        #expect(guidance.contains("actionItems"))
+    }
+
+    @Test
+    func providerPromptDescribesImportedTemplateBoxBuckets() {
+        let pack = TemplatePack(
+            identity: TemplatePackIdentity(name: "Graph Notes", description: "Imported from LaTeX"),
+            archetype: .technicalNote,
+            schema: RecommendedSchema(fields: []),
+            layout: LayoutSpec(blocks: [
+                TemplateBlockSpec(
+                    blockType: .summary,
+                    fieldBinding: "summary_boxes",
+                    styleVariant: TemplateBlockStyleVariant.summary.rawValue,
+                    emptyBehavior: .hidden
+                ),
+                TemplateBlockSpec(
+                    blockType: .warningBox,
+                    fieldBinding: "warning_boxes",
+                    styleVariant: TemplateBlockStyleVariant.warning.rawValue,
+                    emptyBehavior: .hidden
+                ),
+                TemplateBlockSpec(
+                    blockType: .callouts,
+                    fieldBinding: "code_boxes",
+                    styleVariant: TemplateBlockStyleVariant.code.rawValue,
+                    emptyBehavior: .hidden
+                ),
+                TemplateBlockSpec(
+                    blockType: .section,
+                    fieldBinding: "sections",
+                    styleVariant: TemplateBlockStyleVariant.standard.rawValue,
+                    emptyBehavior: .hidden
+                ),
+            ]),
+            style: StyleKit(accentHex: "#2E5AAC"),
+            behavior: TemplateBehaviorRules()
+        )
+        let template = Template.packBacked(pack, scope: .user)
+
+        let guidance = providerPromptTemplateGuidance(template: template, usedBlocks: [])
+
+        #expect(guidance.contains("Pack layout order: summary_boxes, warning_boxes, code_boxes, sections"))
+        #expect(guidance.contains("Use templateBoxes"))
+        #expect(guidance.contains("critical cautions"))
+        #expect(guidance.contains("commands, code snippets"))
     }
 }

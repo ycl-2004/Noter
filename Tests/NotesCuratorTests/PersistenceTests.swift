@@ -4,6 +4,75 @@ import Testing
 
 struct PersistenceTests {
     @Test
+    func templateDecodesMarkdownAuthoringFieldsWithLegacyFallbacks() throws {
+        let template = Template(
+            kind: .content,
+            scope: .user,
+            name: "Action Plan",
+            subtitle: "Task-first notes",
+            templateDescription: "Moves execution blocks near the top.",
+            format: .markdownTemplate,
+            body: """
+            ---
+            goal: actionItems
+            sample_data: action_plan
+            ---
+            # {{title}}
+            """,
+            config: [:]
+        )
+
+        #expect(template.format == .markdownTemplate)
+        #expect(template.body.contains("{{title}}"))
+        #expect(template.subtitle == "Task-first notes")
+    }
+
+    @Test
+    func draftVersionPersistsTemplateIdentityAndGenerationSource() {
+        let templateID = UUID()
+        let draft = DraftVersion(
+            workspaceItemId: UUID(),
+            goalType: .actionItems,
+            outputLanguage: .english,
+            editorDocument: "# Action Plan",
+            structuredDoc: .fixture(
+                exportMetadata: ExportMetadata(
+                    contentTemplateID: templateID,
+                    contentTemplateName: "Action Plan",
+                    renderedContentTemplateID: templateID,
+                    visualTemplateName: "Oceanic Blue",
+                    preferredFormat: .markdown
+                )
+            ),
+            sourceRefs: [],
+            imageSuggestions: [],
+            generationSourceText: "raw source text"
+        )
+
+        #expect(draft.generationSourceText == "raw source text")
+        #expect(draft.structuredDoc.exportMetadata.contentTemplateID == templateID)
+        #expect(draft.structuredDoc.exportMetadata.renderedContentTemplateID == templateID)
+    }
+
+    @Test
+    func packBackedTemplatePersistsBuilderLiteEdits() async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("sqlite")
+
+        let repository = try SQLiteCuratorRepository(databaseURL: tempURL)
+        let template = Template.packBacked(
+            TemplatePackDefaults.pack(for: .technicalNote, named: "Imported Technical Template"),
+            scope: .user
+        )
+
+        try await repository.save(template: template)
+        let snapshot = try await repository.loadSnapshot()
+
+        #expect(try snapshot.templates.first?.templatePack().layout.blocks.isEmpty == false)
+    }
+
+    @Test
     func sqliteRepositoryPersistsWorkspaceGraphs() async throws {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

@@ -55,4 +55,31 @@ struct AppPreferencesTests {
         #expect(preferences.customAPIKey == "gemini-key")
         #expect(preferences.resolvedAPIKey() == "gemini-key")
     }
+
+    @Test
+    func legacyPreferencesDecodeEditableHomeHeroCopyDefaults() throws {
+        let legacyJSON = """
+        {
+          "hostedService": "nvidia",
+          "providerKind": "heuristicFallback",
+          "modelName": "qwen3:8b",
+          "defaultOutputLanguage": "english",
+          "defaultExportFormat": "pdf",
+          "autoSave": true,
+          "customBaseURL": "",
+          "customAPIKey": "",
+          "enableWorkflowRouting": false,
+          "customChunkModelName": "chunk",
+          "customPolishModelName": "polish",
+          "customRepairModelName": "repair"
+        }
+        """.data(using: .utf8)!
+
+        let preferences = try JSONDecoder().decode(AppPreferences.self, from: legacyJSON)
+
+        #expect(preferences.homeHeroCopy.eyebrow == HomeHeroCopy.defaultValue.eyebrow)
+        #expect(preferences.homeHeroCopy.title == HomeHeroCopy.defaultValue.title)
+        #expect(preferences.homeHeroCopy.subtitle == HomeHeroCopy.defaultValue.subtitle)
+        #expect(preferences.homeHeroCopy.searchPlaceholder == HomeHeroCopy.defaultValue.searchPlaceholder)
+    }
 }

@@ -104,8 +104,28 @@ struct ReviewInspectorSection: Equatable {
 }
 
 enum WorkspaceCustomizationPresentation {
+    enum FocusField: Equatable {
+        case title
+        case subtitle
+    }
+
+    static let subtitleBorderAllowsHitTesting = false
+    static let subtitleEditorMinHeight: CGFloat = 108
+    static let usesNativeTextViewForSubtitleEditing = true
+    static let initialFocusedField: FocusField = .title
+
+    static func focusTarget(afterSelecting field: FocusField) -> FocusField {
+        field
+    }
+
     static func resolvedSubtitle(_ rawValue: String) -> String {
         rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+enum WorkspaceDetailPresentation {
+    static func liveWorkspace(workspaceID: UUID, from workspaces: [Workspace], fallback: Workspace) -> Workspace {
+        workspaces.first(where: { $0.id == workspaceID }) ?? fallback
     }
 }
 
@@ -159,6 +179,17 @@ enum HomeSurfacePolicy {
     static func defaultSections(hasSavedSession: Bool) -> [HomeSurfaceSection] {
         _ = hasSavedSession
         return [.workspaces, .quickActions, .currentWork]
+    }
+}
+
+enum TemplateLibraryPresentation {
+    static func availableActions(hasPendingImport: Bool) -> [String] {
+        var actions = ["Import LaTeX Template"]
+        if hasPendingImport {
+            actions.append("Use Template")
+            actions.append("Adjust Type")
+        }
+        return actions
     }
 }
 

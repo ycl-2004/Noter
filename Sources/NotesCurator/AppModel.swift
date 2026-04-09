@@ -38,6 +38,8 @@ final class NotesCuratorAppModel {
     var hasSavedSession = false
     var pendingContentTemplateName: String?
     var pendingVisualTemplateName: String?
+    var pendingTemplateImportReview: TemplateImportReview?
+    var editingTemplatePack: TemplatePack?
 
     init(
         repository: CuratorRepository,
@@ -81,11 +83,11 @@ final class NotesCuratorAppModel {
     }
 
     var contentTemplates: [Template] {
-        templates.filter { $0.kind == .content }
+        effectiveTemplates(of: .content)
     }
 
     var visualTemplates: [Template] {
-        templates.filter { $0.kind == .visual }
+        effectiveTemplates(of: .visual)
     }
 
     func load() async throws {
@@ -363,7 +365,60 @@ final class NotesCuratorAppModel {
     func updateVisualTemplate(_ name: String) async throws {
         guard var version = currentVersion else { return }
         version.structuredDoc.exportMetadata.visualTemplateName = name
+        version.structuredDoc.exportMetadata.visualTemplateID = visualTemplate(named: name)?.id
         try await persistCurrentVersion(version)
+    }
+
+    func updateSelectedContentTemplate(_ templateID: UUID) async throws {
+        guard var version = currentVersion,
+              let template = contentTemplate(id: templateID) else {
+            return
+        }
+
+        version.structuredDoc.exportMetadata.contentTemplateID = template.id
+        version.structuredDoc.exportMetadata.contentTemplateName = template.name
+        version.structuredDoc.exportMetadata.contentTemplatePackData = template.storedPackData
+        try await persistCurrentVersion(version)
+    }
+
+    func regenerateCurrentDraftWithSelectedTemplate() async throws {
+        guard let version = currentVersion,
+              let sourceText = version.generationSourceText,
+              let contentTemplate = resolvedContentTemplate(for: version) else {
+            return
+        }
+
+        let visualTemplate = resolvedVisualTemplate(for: version)
+        let regenerated = try await refreshedPipeline().regenerateDraft(
+            sourceText: sourceText,
+            workspaceItemId: version.workspaceItemId,
+            goalType: version.goalType,
+            outputLanguage: version.outputLanguage,
+            sourceRefs: version.sourceRefs,
+            imageSuggestions: version.imageSuggestions,
+            contentTemplate: contentTemplate,
+            visualTemplate: visualTemplate,
+            contentTemplateName: version.structuredDoc.exportMetadata.contentTemplateName,
+            visualTemplateName: version.structuredDoc.exportMetadata.visualTemplateName
+        )
+
+        let updatedVersion = DraftVersion(
+            id: version.id,
+            workspaceItemId: version.workspaceItemId,
+            goalType: regenerated.goalType,
+            outputLanguage: regenerated.outputLanguage,
+            editorDocument: regenerated.editorDocument,
+            structuredDoc: regenerated.structuredDoc,
+            sourceRefs: regenerated.sourceRefs,
+            imageSuggestions: regenerated.imageSuggestions,
+            origin: version.origin,
+            parentVersionId: version.parentVersionId,
+            createdAt: version.createdAt,
+            generationSourceText: sourceText
+        )
+
+        try await persistCurrentVersion(updatedVersion)
+        try await syncSelectedDraftItem(using: updatedVersion)
     }
 
     func insertImageSuggestion(_ suggestionID: UUID) async throws {
@@ -399,7 +454,8 @@ final class NotesCuratorAppModel {
             sourceRefs: currentVersion.sourceRefs,
             imageSuggestions: currentVersion.imageSuggestions,
             origin: .manual,
-            parentVersionId: currentVersion.id
+            parentVersionId: currentVersion.id,
+            generationSourceText: currentVersion.generationSourceText
         )
 
         try await repository.save(version: savedVersion)
@@ -461,6 +517,7 @@ final class NotesCuratorAppModel {
         var exportVersion = version
         if let visualTemplateName {
             exportVersion.structuredDoc.exportMetadata.visualTemplateName = visualTemplateName
+            exportVersion.structuredDoc.exportMetadata.visualTemplateID = visualTemplate(named: visualTemplateName)?.id
             try await persistCurrentVersion(exportVersion)
         }
 
@@ -488,10 +545,135 @@ final class NotesCuratorAppModel {
         exports.removeAll { $0.id == exportID }
     }
 
-    func saveUserTemplate(kind: TemplateKind, name: String, config: [String: String]) async throws {
-        let template = Template(kind: kind, scope: .user, name: name, config: config)
+    func saveUserTemplate(
+        kind: TemplateKind,
+        name: String,
+        subtitle: String = "",
+        templateDescription: String = "",
+        format: TemplateFormat = .legacyConfig,
+        body: String = "",
+        config: [String: String]
+    ) async throws {
+        let template = Template(
+            kind: kind,
+            scope: .user,
+            name: name,
+            subtitle: subtitle,
+            templateDescription: templateDescription,
+            format: format,
+            body: body,
+            config: config
+        )
+        try await saveTemplate(template)
+    }
+
+    func saveTemplate(_ template: Template) async throws {
         try await repository.save(template: template)
-        templates.append(template)
+        if let index = templates.firstIndex(where: { $0.id == template.id }) {
+            templates[index] = template
+        } else {
+            templates.append(template)
+        }
+        sortTemplates()
+    }
+
+    func beginLatexTemplateImport(_ source: String) throws {
+        let review = try LatexTemplateImporter.importTemplate(from: source)
+        pendingTemplateImportReview = review
+        editingTemplatePack = review.templatePack
+    }
+
+    func adjustPendingImportArchetype(_ archetype: TemplateArchetype) {
+        pendingTemplateImportReview = pendingTemplateImportReview?.rebuild(for: archetype)
+        editingTemplatePack = pendingTemplateImportReview?.templatePack
+    }
+
+    @discardableResult
+    func savePendingTemplateImport(as scope: TemplateScope = .user) async throws -> Template? {
+        guard let review = pendingTemplateImportReview else { return nil }
+        let template = Template.packBacked(editingTemplatePack ?? review.templatePack, scope: scope)
+        try await saveTemplate(template)
+        pendingTemplateImportReview = nil
+        editingTemplatePack = nil
+        return template
+    }
+
+    func discardPendingTemplateImport() {
+        pendingTemplateImportReview = nil
+        editingTemplatePack = nil
+    }
+
+    func beginEditingTemplatePack(_ template: Template) throws {
+        editingTemplatePack = try template.templatePack()
+    }
+
+    func moveEditingTemplateBlock(from source: Int, to destination: Int) {
+        guard var pack = editingTemplatePack,
+              pack.layout.blocks.indices.contains(source) else {
+            return
+        }
+
+        let block = pack.layout.blocks.remove(at: source)
+        let targetIndex = max(0, min(destination, pack.layout.blocks.count))
+        pack.layout.blocks.insert(block, at: targetIndex)
+        editingTemplatePack = pack
+        syncEditingPackIntoPendingImport()
+    }
+
+    func renameEditingTemplateBlock(_ blockID: UUID, to title: String) {
+        guard var pack = editingTemplatePack,
+              let index = pack.layout.blocks.firstIndex(where: { $0.id == blockID }) else {
+            return
+        }
+
+        pack.layout.blocks[index].titleOverride = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        editingTemplatePack = pack
+        syncEditingPackIntoPendingImport()
+    }
+
+    func setEditingTemplateEmptyBehavior(
+        _ blockID: UUID,
+        authoring: EmptyBlockBehavior,
+        preview: EmptyBlockBehavior,
+        export: EmptyBlockBehavior
+    ) {
+        guard var pack = editingTemplatePack,
+              let index = pack.layout.blocks.firstIndex(where: { $0.id == blockID }) else {
+            return
+        }
+
+        pack.layout.blocks[index].emptyBehavior = SurfaceEmptyBehavior(
+            authoring: authoring,
+            preview: preview,
+            export: export
+        )
+        editingTemplatePack = pack
+        syncEditingPackIntoPendingImport()
+    }
+
+    @discardableResult
+    func saveEditingTemplatePack(as scope: TemplateScope = .user) async throws -> Template? {
+        guard let pack = editingTemplatePack else { return nil }
+        let template = Template.packBacked(pack, scope: scope)
+        try await saveTemplate(template)
+        return template
+    }
+
+    @discardableResult
+    func duplicateTemplate(_ templateID: UUID) async throws -> Template? {
+        guard let template = templates.first(where: { $0.id == templateID }) else { return nil }
+        let duplicate = template.duplicated(named: "\(template.name) Copy")
+        try await saveTemplate(duplicate)
+        return duplicate
+    }
+
+    func deleteTemplate(_ templateID: UUID) async throws {
+        guard let template = templates.first(where: { $0.id == templateID }),
+              template.scope == .user else {
+            return
+        }
+        try await repository.delete(templateID: templateID)
+        templates.removeAll { $0.id == templateID }
     }
 
     func startNewNote(using template: Template) async throws {
@@ -613,6 +795,8 @@ final class NotesCuratorAppModel {
         let result = try await pipelineForRequest.processInteractive(
             intake: intake,
             workspaceItemId: item.id,
+            contentTemplate: resolvedContentTemplate(named: intake.contentTemplateName, goalType: intake.goalType),
+            visualTemplate: visualTemplate(named: intake.visualTemplateName),
             onStageChange: { [weak self] stage in
                 Task { @MainActor in
                     self?.processingStages.append(stage)
@@ -695,7 +879,11 @@ final class NotesCuratorAppModel {
         )
 
         if result.shouldRefineInBackground {
-            startBackgroundRefinement(for: updatedItem, baseVersion: result.version, sourceText: result.sourceText)
+            startBackgroundRefinement(
+                for: updatedItem,
+                baseVersion: result.version,
+                sourceText: result.sourceText
+            )
         }
     }
 
@@ -816,11 +1004,18 @@ final class NotesCuratorAppModel {
         baseVersion: DraftVersion,
         sourceText: String
     ) {
+        let contentTemplate = resolvedContentTemplate(for: baseVersion)
+        let visualTemplate = resolvedVisualTemplate(for: baseVersion)
         let pipelineForRequest = refreshedPipeline()
         let task = Task { @MainActor [self] in
             defer { refinementTasks[item.id] = nil }
             do {
-                let refined = try await pipelineForRequest.refineDraftVersion(baseVersion, sourceText: sourceText)
+                let refined = try await pipelineForRequest.refineDraftVersion(
+                    baseVersion,
+                    sourceText: sourceText,
+                    contentTemplate: contentTemplate,
+                    visualTemplate: visualTemplate
+                )
                 try Task.checkCancellation()
                 try await handleCompletedRefinement(itemID: item.id, refinedVersion: refined)
             } catch {
@@ -912,14 +1107,22 @@ final class NotesCuratorAppModel {
     }
 
     private func syncSystemTemplatesIfNeeded() async throws {
-        for template in Self.defaultTemplates {
-            if let index = templates.firstIndex(where: { $0.kind == template.kind && $0.name == template.name }) {
+        for template in Template.defaultTemplates {
+            if let index = templates.firstIndex(where: {
+                $0.kind == template.kind &&
+                $0.scope == .system &&
+                $0.name == template.name
+            }) {
                 var refreshed = template
                 refreshed = Template(
                     id: templates[index].id,
                     kind: template.kind,
                     scope: template.scope,
                     name: template.name,
+                    subtitle: template.subtitle,
+                    templateDescription: template.templateDescription,
+                    format: template.format,
+                    body: template.body,
                     config: template.config
                 )
                 try await repository.save(template: refreshed)
@@ -929,11 +1132,7 @@ final class NotesCuratorAppModel {
                 templates.append(template)
             }
         }
-        templates.sort { lhs, rhs in
-            if lhs.kind != rhs.kind { return lhs.kind.rawValue < rhs.kind.rawValue }
-            if lhs.scope != rhs.scope { return lhs.scope.rawValue < rhs.scope.rawValue }
-            return lhs.name < rhs.name
-        }
+        sortTemplates()
     }
 
     private func removeRedundantTemplateCopiesIfNeeded() async throws {
@@ -953,59 +1152,86 @@ final class NotesCuratorAppModel {
         templates.removeAll { redundantIDs.contains($0.id) }
     }
 
-    private static let defaultTemplates: [Template] = [
-        Template(
-            kind: .content,
-            scope: .system,
-            name: "Summary",
-            config: [
-                "goal": GoalType.summary.rawValue,
-                "purpose": "Condense a large source into the shortest useful version with only the primary ideas.",
-                "completeness": "Lowest completeness; minor context and secondary detail are intentionally removed."
-            ]
-        ),
-        Template(
-            kind: .content,
-            scope: .system,
-            name: "Structured Notes",
-            config: [
-                "goal": GoalType.structuredNotes.rawValue,
-                "purpose": "Organize material for learning and recall with cues, sections, and review support.",
-                "completeness": "Balanced completeness; preserves main ideas, relationships, and study aids."
-            ]
-        ),
-        Template(kind: .content, scope: .system, name: "Lecture Notes", config: ["goal": GoalType.structuredNotes.rawValue, "style": "teaching"]),
-        Template(kind: .content, scope: .system, name: "Study Guide", config: ["goal": GoalType.structuredNotes.rawValue, "style": "review"]),
-        Template(kind: .content, scope: .system, name: "Technical Deep Dive", config: ["goal": GoalType.formalDocument.rawValue, "style": "technical"]),
-        Template(
-            kind: .content,
-            scope: .system,
-            name: "Formal Document",
-            config: [
-                "goal": GoalType.formalDocument.rawValue,
-                "purpose": "Present the material for a defined audience as a polished brief, memo, or report.",
-                "completeness": "Highest completeness; keeps fuller context, structure, explanation, and recommendations."
-            ]
-        ),
-        Template(
-            kind: .content,
-            scope: .system,
-            name: "Action Items",
-            config: [
-                "goal": GoalType.actionItems.rawValue,
-                "purpose": "Turn discussion into trackable follow-ups with clear next steps, owners, and deadlines.",
-                "completeness": "Execution-focused completeness; background detail is compressed behind what happens next."
-            ]
-        ),
-        Template(kind: .visual, scope: .system, name: "Oceanic Blue", config: ["accent": "#165FCA", "surface": "#F6F9FF", "mood": "Trustworthy and clear"]),
-        Template(kind: .visual, scope: .system, name: "Graphite", config: ["accent": "#2A3347", "surface": "#F7F8FB", "mood": "Neutral and focused"]),
-        Template(kind: .visual, scope: .system, name: "Bloom", config: ["accent": "#D7568B", "surface": "#FFF8FB", "mood": "Warm and expressive"]),
-        Template(kind: .visual, scope: .system, name: "Ivory Lecture", config: ["accent": "#7A5C2E", "surface": "#FFFCF8", "mood": "Academic and calm"]),
-        Template(kind: .visual, scope: .system, name: "Sage Ledger", config: ["accent": "#2F6A57", "surface": "#F8FCFA", "mood": "Measured and composed"]),
-        Template(kind: .visual, scope: .system, name: "Indigo Ink", config: ["accent": "#4F46E5", "surface": "#EEF2FF", "mood": "Modern and confident"]),
-        Template(kind: .visual, scope: .system, name: "Emerald Grove", config: ["accent": "#047857", "surface": "#ECFDF5", "mood": "Fresh and reliable"]),
-        Template(kind: .visual, scope: .system, name: "Amber Journal", config: ["accent": "#D97706", "surface": "#FFFBEB", "mood": "Optimistic and editorial"]),
-        Template(kind: .visual, scope: .system, name: "Rose Studio", config: ["accent": "#E11D48", "surface": "#FFF1F2", "mood": "Energetic and creative"]),
-        Template(kind: .visual, scope: .system, name: "Teal Current", config: ["accent": "#0F766E", "surface": "#F0FDFA", "mood": "Clean and balanced"]),
-    ]
+    private func sortTemplates() {
+        templates.sort(by: templateSortOrder(_:_:))
+    }
+
+    private func syncEditingPackIntoPendingImport() {
+        guard let editingTemplatePack, var review = pendingTemplateImportReview else { return }
+        review.templatePack = editingTemplatePack
+        pendingTemplateImportReview = review
+    }
+
+    private func contentTemplate(id: UUID) -> Template? {
+        templates.first { $0.kind == .content && $0.id == id }
+    }
+
+    private func resolvedContentTemplate(named name: String, goalType: GoalType) -> Template? {
+        preferredTemplate(named: name, kind: .content)
+            ?? Template.builtinContentTemplate(named: name, goalType: goalType)
+    }
+
+    private func resolvedContentTemplate(for version: DraftVersion) -> Template? {
+        if let templateID = version.structuredDoc.exportMetadata.contentTemplateID,
+           let template = contentTemplate(id: templateID) {
+            return template
+        }
+        return resolvedContentTemplate(
+            named: version.structuredDoc.exportMetadata.contentTemplateName,
+            goalType: version.goalType
+        )
+    }
+
+    private func visualTemplate(named name: String) -> Template? {
+        preferredTemplate(named: name, kind: .visual)
+    }
+
+    private func resolvedVisualTemplate(for version: DraftVersion) -> Template? {
+        if let visualID = version.structuredDoc.exportMetadata.visualTemplateID,
+           let template = templates.first(where: { $0.kind == .visual && $0.id == visualID }) {
+            return template
+        }
+        return visualTemplate(named: version.structuredDoc.exportMetadata.visualTemplateName)
+    }
+
+    private func effectiveTemplates(of kind: TemplateKind) -> [Template] {
+        let ordered = templates
+            .filter { $0.kind == kind }
+            .sorted(by: templateSortOrder(_:_:))
+
+        var preferredByName: [String: Template] = [:]
+        for template in ordered {
+            let key = templateLibraryKey(for: template.name)
+            if let existing = preferredByName[key], existing.scope == .user {
+                continue
+            }
+            preferredByName[key] = template
+        }
+
+        return preferredByName.values.sorted(by: templateSortOrder(_:_:))
+    }
+
+    private func preferredTemplate(named name: String, kind: TemplateKind) -> Template? {
+        let matches = templates.filter {
+            $0.kind == kind && templateLibraryKey(for: $0.name) == templateLibraryKey(for: name)
+        }
+        return matches.first(where: { $0.scope == .user })
+            ?? matches.first(where: { $0.scope == .system })
+    }
+
+    private func templateLibraryKey(for name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func templateSortOrder(_ lhs: Template, _ rhs: Template) -> Bool {
+        if lhs.kind != rhs.kind { return lhs.kind.rawValue < rhs.kind.rawValue }
+
+        let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+        if nameOrder != .orderedSame {
+            return nameOrder == .orderedAscending
+        }
+
+        if lhs.scope != rhs.scope { return lhs.scope.rawValue < rhs.scope.rawValue }
+        return lhs.id.uuidString < rhs.id.uuidString
+    }
 }

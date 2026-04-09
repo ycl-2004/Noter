@@ -357,16 +357,17 @@ private struct DashboardHomeView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        let heroCopy = model.preferences.homeHeroCopy
+        return VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Resume Flow")
+                    Text(heroCopy.eyebrow)
                         .font(.caption)
                         .tracking(2)
                         .foregroundStyle(.secondary)
-                    Text("Pick up the note that matters right now.")
+                    Text(heroCopy.title)
                         .font(.system(size: 38, weight: .bold, design: .rounded))
-                    Text("Keep workspaces as context, but keep today's active note at the center of intake, editing, review, and export.")
+                    Text(heroCopy.subtitle)
                         .font(.title3)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: 680, alignment: .leading)
@@ -388,7 +389,7 @@ private struct DashboardHomeView: View {
                     HStack(spacing: 12) {
                         Image(systemName: "magnifyingglass")
                             .foregroundStyle(.secondary)
-                        TextField("Search workspaces or drafts", text: $searchQuery)
+                        TextField(heroCopy.searchPlaceholder, text: $searchQuery)
                             .textFieldStyle(.plain)
                             .frame(width: 280)
                     }
@@ -735,9 +736,10 @@ private struct WorkspaceDetailView: View {
     }
 
     private var workspaceHeaderText: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let liveWorkspace = resolvedWorkspace
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
-                Text(workspace.coverBadgeTitle)
+                Text(liveWorkspace.coverBadgeTitle)
                     .font(.caption.bold())
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -748,11 +750,19 @@ private struct WorkspaceDetailView: View {
                     .tracking(2)
                     .foregroundStyle(.secondary)
             }
-                Text(workspace.name)
+                Text(liveWorkspace.name)
                     .font(.system(size: 34, weight: .bold, design: .rounded))
-                Text(workspace.subtitle)
+                Text(liveWorkspace.subtitle)
                     .foregroundStyle(.secondary)
         }
+    }
+
+    private var resolvedWorkspace: Workspace {
+        WorkspaceDetailPresentation.liveWorkspace(
+            workspaceID: workspace.id,
+            from: model.workspaces,
+            fallback: workspace
+        )
     }
 
     private var customizeWorkspaceButton: some View {
@@ -765,7 +775,7 @@ private struct WorkspaceDetailView: View {
     private var newNoteButton: some View {
         Button("New Note") {
             runModelTask(model) {
-                try await model.beginNewNote(in: workspace.id)
+                try await model.beginNewNote(in: resolvedWorkspace.id)
             }
         }
         .buttonStyle(.borderedProminent)
@@ -792,11 +802,11 @@ private struct WorkspaceDetailView: View {
     }
 
     private var workspaceDrafts: [WorkspaceItem] {
-        model.workspaceItems(in: workspace.id, kind: .draft)
+        model.workspaceItems(in: resolvedWorkspace.id, kind: .draft)
     }
 
     private var selectedItem: WorkspaceItem? {
-        guard let item = model.selectedDraftItem, item.workspaceId == workspace.id else {
+        guard let item = model.selectedDraftItem, item.workspaceId == resolvedWorkspace.id else {
             return nil
         }
         return item
@@ -848,7 +858,7 @@ private struct WorkspaceDetailView: View {
                             .foregroundStyle(.secondary)
                         Button("Start New Note") {
                             runModelTask(model) {
-                                try await model.beginNewNote(in: workspace.id)
+                                try await model.beginNewNote(in: resolvedWorkspace.id)
                             }
                         }
                         .buttonStyle(.borderedProminent)
@@ -1519,10 +1529,22 @@ private struct ProcessingView: View {
 }
 
 private struct EditDocumentView: View {
+    private enum DraftSaveState: Equatable {
+        case idle
+        case pending
+        case saving
+        case saved
+    }
+
     @Bindable var model: NotesCuratorAppModel
     @State private var editorText = ""
     @State private var showSources = false
     @State private var showRefinedComparison = false
+    @State private var selectedContentTemplateID: UUID?
+    @State private var showRegenerateConfirmation = false
+    @State private var autosaveTask: Task<Void, Never>?
+    @State private var draftSaveState: DraftSaveState = .idle
+    @State private var lastSavedAt: Date?
     var fullHeight = false
 
     private var editorPanelHeight: CGFloat {
@@ -1561,6 +1583,8 @@ private struct EditDocumentView: View {
                         refinementBanner(for: item)
                     }
 
+                    templateControls(for: version)
+
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Document")
                             .font(.headline)
@@ -1577,11 +1601,27 @@ private struct EditDocumentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .onAppear {
                         editorText = version.editorDocument
+                        selectedContentTemplateID = resolvedSelectedTemplateID(for: version)
+                        lastSavedAt = model.selectedDraftItem?.lastEditedAt ?? version.createdAt
+                        draftSaveState = .saved
                     }
                     .onChange(of: version.id) { _, _ in
                         if let currentVersion = model.currentVersion {
                             editorText = currentVersion.editorDocument
+                            selectedContentTemplateID = resolvedSelectedTemplateID(for: currentVersion)
+                            lastSavedAt = model.selectedDraftItem?.lastEditedAt ?? currentVersion.createdAt
+                            draftSaveState = .saved
                         }
+                    }
+                    .onChange(of: version.structuredDoc.exportMetadata.contentTemplateID) { _, _ in
+                        selectedContentTemplateID = resolvedSelectedTemplateID(for: version)
+                    }
+                    .onChange(of: editorText) { _, newValue in
+                        scheduleAutosaveIfNeeded(for: newValue)
+                    }
+                    .onDisappear {
+                        autosaveTask?.cancel()
+                        autosaveTask = nil
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: fullHeight ? .infinity : nil, alignment: .topLeading)
@@ -1624,6 +1664,14 @@ private struct EditDocumentView: View {
                     )
                 }
             }
+            .alert("Replace the current editor text?", isPresented: $showRegenerateConfirmation) {
+                Button("Regenerate", role: .destructive) {
+                    regenerateWithSelectedTemplate()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Unsaved edits in the editor will be replaced by a newly generated draft using the selected content template.")
+            }
         } else if let failedItem = model.selectedDraftItem, failedItem.status == .failed {
             FailedDraftState(model: model, item: failedItem)
         } else if let processingItem = model.selectedDraftItem, processingItem.status == .processing {
@@ -1633,17 +1681,82 @@ private struct EditDocumentView: View {
         }
     }
 
-    private var editorActions: some View {
-        HStack(spacing: 12) {
-            Button("Save Version") {
-                commitAndSaveVersion()
-            }
-            .buttonStyle(.bordered)
+    @ViewBuilder
+    private func templateControls(for version: DraftVersion) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Text("Content Template")
+                    .font(.headline)
 
-            Button("Open Format Preview") {
-                commitAndOpenPreview()
+                Spacer()
+
+                if templateOutOfSync(for: version) {
+                    Text("Template changed. Regenerate to apply the new structure.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
-            .buttonStyle(.borderedProminent)
+
+            HStack(spacing: 12) {
+                Picker(
+                    "Content Template",
+                    selection: Binding(
+                        get: { selectedContentTemplateID },
+                        set: { newValue in
+                            guard let newValue else { return }
+                            selectedContentTemplateID = newValue
+                            runModelTask(model) {
+                                try await model.updateSelectedContentTemplate(newValue)
+                            }
+                        }
+                    )
+                ) {
+                    ForEach(model.contentTemplates) { template in
+                        Text(template.name).tag(Optional(template.id))
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Button("Regenerate with Template") {
+                    if editorText != version.editorDocument {
+                        showRegenerateConfirmation = true
+                    } else {
+                        regenerateWithSelectedTemplate()
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(canRegenerate(for: version) == false)
+            }
+
+            if missingTemplate(for: version) {
+                Label("Missing Template. Pick a valid content template before regenerating.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+    }
+
+    private var editorActions: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            HStack(spacing: 12) {
+                Button("Save Snapshot") {
+                    commitAndSaveVersion()
+                }
+                .buttonStyle(.bordered)
+
+                Button("Open Format Preview") {
+                    commitAndOpenPreview()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            Text(saveStatusText)
+                .font(.caption)
+                .foregroundStyle(saveStatusColor)
         }
     }
 
@@ -1713,27 +1826,163 @@ private struct EditDocumentView: View {
     }
 
     private func commitEditorChanges() {
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        draftSaveState = .saving
         runModelTask(model) {
             try await model.updateEditorDocument(editorText)
+            markDraftSaved()
         }
     }
 
     private func commitAndSaveVersion() {
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        draftSaveState = .saving
         runModelTask(model) {
             try await model.updateEditorDocument(editorText)
             try await model.saveManualVersion()
+            markDraftSaved()
         }
     }
 
     private func commitAndOpenPreview() {
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        draftSaveState = .saving
         runModelTask(model) {
             try await model.updateEditorDocument(editorText)
+            markDraftSaved()
             model.showPreview()
         }
     }
 
-    private func editorDisplayTitle(fallback: String) -> String {
-        EditorDocumentSync.inferredTitle(document: editorText, fallback: fallback)
+    private func regenerateWithSelectedTemplate() {
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        draftSaveState = .saving
+        runModelTask(model) {
+            try await model.regenerateCurrentDraftWithSelectedTemplate()
+            if let refreshed = model.currentVersion?.editorDocument {
+                editorText = refreshed
+            }
+            markDraftSaved()
+        }
+    }
+
+    private func resolvedSelectedTemplateID(for version: DraftVersion) -> UUID? {
+        if let templateID = version.structuredDoc.exportMetadata.contentTemplateID,
+           model.contentTemplates.contains(where: { $0.id == templateID }) {
+            return templateID
+        }
+        return model.contentTemplates.first(where: {
+            $0.name == version.structuredDoc.exportMetadata.contentTemplateName
+        })?.id
+    }
+
+    private func selectedTemplate(for version: DraftVersion) -> Template? {
+        guard let selectedContentTemplateID else {
+            return model.contentTemplates.first {
+                $0.name == version.structuredDoc.exportMetadata.contentTemplateName
+            }
+        }
+        return model.contentTemplates.first { $0.id == selectedContentTemplateID }
+    }
+
+    private func missingTemplate(for version: DraftVersion) -> Bool {
+        selectedTemplate(for: version) == nil
+    }
+
+    private func canRegenerate(for version: DraftVersion) -> Bool {
+        version.generationSourceText != nil && selectedTemplate(for: version) != nil
+    }
+
+    private func templateOutOfSync(for version: DraftVersion) -> Bool {
+        guard let selectedTemplate = selectedTemplate(for: version) else { return false }
+        return version.structuredDoc.exportMetadata.renderedContentTemplateID != selectedTemplate.id
+    }
+
+    private func scheduleAutosaveIfNeeded(for document: String) {
+        let persistedDocument = model.currentVersion?.editorDocument ?? ""
+
+        guard document != persistedDocument else {
+            if draftSaveState != .saving {
+                draftSaveState = .saved
+                lastSavedAt = model.selectedDraftItem?.lastEditedAt ?? lastSavedAt
+            }
+            return
+        }
+
+        draftSaveState = .pending
+        guard model.preferences.autoSave else { return }
+
+        autosaveTask?.cancel()
+        autosaveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled else { return }
+            await autosaveEditorDocument()
+        }
+    }
+
+    private func autosaveEditorDocument() async {
+        let persistedDocument = model.currentVersion?.editorDocument ?? ""
+        guard editorText != persistedDocument else {
+            markDraftSaved()
+            return
+        }
+
+        draftSaveState = .saving
+        do {
+            try await model.updateEditorDocument(editorText)
+            markDraftSaved()
+        } catch {
+            guard (error is CancellationError) == false else { return }
+            draftSaveState = .pending
+            model.present(error: error)
+        }
+    }
+
+    private func markDraftSaved() {
+        lastSavedAt = model.selectedDraftItem?.lastEditedAt ?? .now
+        draftSaveState = .saved
+    }
+
+    private var saveStatusText: String {
+        if model.preferences.autoSave {
+            switch draftSaveState {
+            case .idle:
+                return "Draft edits auto-save locally. Save Snapshot keeps a named checkpoint."
+            case .pending:
+                return "Unsaved changes detected. Saving automatically..."
+            case .saving:
+                return "Saving draft..."
+            case .saved:
+                if let lastSavedAt {
+                    return "Auto-saved \(lastSavedAt.formatted(date: .omitted, time: .shortened)). Save Snapshot keeps a checkpoint."
+                }
+                return "Draft edits auto-save locally. Save Snapshot keeps a named checkpoint."
+            }
+        }
+
+        switch draftSaveState {
+        case .idle, .saved:
+            return "Auto Save is off. Press Cmd+S to save the current draft, or Save Snapshot for a checkpoint."
+        case .pending:
+            return "Unsaved changes. Press Cmd+S to save the current draft."
+        case .saving:
+            return "Saving draft..."
+        }
+    }
+
+    private var saveStatusColor: Color {
+        switch draftSaveState {
+        case .pending:
+            return .orange
+        case .saving:
+            return .accentColor
+        case .idle, .saved:
+            return .secondary
+        }
     }
 }
 
@@ -2373,6 +2622,9 @@ private struct DraftsView: View {
 private struct TemplateLibraryView: View {
     @Bindable var model: NotesCuratorAppModel
     @State private var selectedTemplate: Template?
+    @State private var editingTemplate: Template?
+    @State private var templatePendingDeletion: Template?
+    @State private var isShowingLatexImportSheet = false
 
     var body: some View {
         Group {
@@ -2380,16 +2632,68 @@ private struct TemplateLibraryView: View {
                 TemplatePreviewPage(model: model, template: selectedTemplate) {
                     self.selectedTemplate = nil
                 }
+            } else if model.pendingTemplateImportReview != nil {
+                TemplateImportReviewView(model: model)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 28) {
-                        SectionTitle(title: "Template Library", subtitle: "Structure and visual templates, including user-saved presets.")
+                        HStack(alignment: .top) {
+                            SectionTitle(title: "Template Library", subtitle: "Structure and visual templates, including user-saved presets.")
+                            Spacer()
+                            Button("Import LaTeX Template") {
+                                isShowingLatexImportSheet = true
+                            }
+                            .buttonStyle(.bordered)
+                            Button("New Template") {
+                                editingTemplate = Template.starterContentTemplate()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
                         templateSection(title: "Content Templates", templates: model.contentTemplates)
                         templateSection(title: "Visual Templates", templates: model.visualTemplates)
                     }
                     .padding(32)
                 }
             }
+        }
+        .sheet(isPresented: $isShowingLatexImportSheet) {
+            LatexTemplateImportSheet(
+                model: model,
+                onDismiss: { isShowingLatexImportSheet = false }
+            )
+        }
+        .sheet(item: $editingTemplate) { template in
+            TemplateEditorSheet(
+                template: template,
+                onDismiss: { editingTemplate = nil },
+                onSave: { savedTemplate in
+                    runModelTask(model) {
+                        try await model.saveTemplate(savedTemplate)
+                        editingTemplate = nil
+                    }
+                }
+            )
+        }
+        .alert(
+            "Delete template?",
+            isPresented: Binding(
+                get: { templatePendingDeletion != nil },
+                set: { if !$0 { templatePendingDeletion = nil } }
+            )
+        ) {
+            Button("Delete", role: .destructive) {
+                if let template = templatePendingDeletion {
+                    runModelTask(model) {
+                        try await model.deleteTemplate(template.id)
+                        templatePendingDeletion = nil
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                templatePendingDeletion = nil
+            }
+        } message: {
+            Text(templatePendingDeletion?.name ?? "")
         }
     }
 
@@ -2399,24 +2703,56 @@ private struct TemplateLibraryView: View {
                 .font(.title2.bold())
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
                 ForEach(templates) { template in
-                    Button {
-                        selectedTemplate = template
-                    } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(template.name)
-                                .font(.headline)
-                            Text(template.scope == .system ? "System preset" : "User saved")
-                                .foregroundStyle(.secondary)
-                            Text(templatePreviewLine(for: template))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Button {
+                            selectedTemplate = template
+                        } label: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(template.name)
+                                    .font(.headline)
+                                Text(template.scope == .system ? "System preset" : "User saved")
+                                    .foregroundStyle(.secondary)
+                                Text(templatePreviewLine(for: template))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                            .contentShape(RoundedRectangle(cornerRadius: 18))
                         }
-                        .padding(18)
-                        .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
-                        .background(Color.white.opacity(0.92))
-                        .clipShape(RoundedRectangle(cornerRadius: 24))
+                        .buttonStyle(.plain)
+
+                        HStack(spacing: 8) {
+                            Button("Preview") {
+                                selectedTemplate = template
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+
+                            if template.kind == .content {
+                                Button("Edit") {
+                                    editingTemplate = editableTemplate(for: template)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+
+                            Spacer()
+
+                            if template.scope == .user {
+                                Button(role: .destructive) {
+                                    templatePendingDeletion = template
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding(18)
+                    .frame(maxWidth: .infinity, minHeight: 140, alignment: .topLeading)
+                    .background(Color.white.opacity(0.92))
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
                 }
             }
         }
@@ -2424,7 +2760,7 @@ private struct TemplateLibraryView: View {
 
     private func templatePreviewLine(for template: Template) -> String {
         if template.kind == .content {
-            return template.config["purpose"] ?? "Preview document structure"
+            return template.subtitle.nonEmpty ?? template.templateDescription.nonEmpty ?? template.config["purpose"] ?? "Preview document structure"
         }
         if let mood = template.config["mood"] {
             return mood
@@ -2436,6 +2772,186 @@ private struct TemplateLibraryView: View {
             return "Based on \(source)"
         }
         return "Preview visual output"
+    }
+
+    private func editableTemplate(for template: Template) -> Template {
+        guard template.kind == .content, template.scope == .system else {
+            return template
+        }
+
+        return template.editableCopy(scope: .user)
+    }
+}
+
+private struct TemplateEditorSheet: View {
+    let template: Template
+    let onDismiss: () -> Void
+    let onSave: (Template) -> Void
+
+    @State private var name: String
+    @State private var subtitle: String
+    @State private var templateDescription: String
+    @State private var templateBody: String
+
+    init(template: Template, onDismiss: @escaping () -> Void, onSave: @escaping (Template) -> Void) {
+        self.template = template
+        self.onDismiss = onDismiss
+        self.onSave = onSave
+        _name = State(initialValue: template.name)
+        _subtitle = State(initialValue: template.subtitle)
+        _templateDescription = State(initialValue: template.templateDescription)
+        _templateBody = State(initialValue: template.body)
+    }
+
+    private var workingTemplate: Template {
+        var config = template.config
+        if let parsed = try? MarkdownTemplate.parse(
+            templateBody,
+            defaultGoal: template.configuredGoalType,
+            defaultSampleDataKey: template.defaultSampleDataKey
+        ) {
+            config["goal"] = parsed.frontMatter.goal.rawValue
+        }
+        return template.updatedForAuthoring(
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? template.name,
+            subtitle: subtitle,
+            templateDescription: templateDescription,
+            body: templateBody,
+            config: config
+        )
+    }
+
+    private var validationError: String? {
+        do {
+            _ = try workingTemplate.markdownTemplate(fallbackGoal: workingTemplate.configuredGoalType)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    private var previewDraft: DraftVersion? {
+        guard validationError == nil else { return nil }
+        let goal = workingTemplate.configuredGoalType
+        let parsed = try? workingTemplate.markdownTemplate(fallbackGoal: goal)
+        let sampleKey = parsed?.frontMatter.sampleDataKey ?? workingTemplate.defaultSampleDataKey
+        var document = TemplatePreviewSamples.document(for: sampleKey, fallbackGoal: goal)
+        document.exportMetadata.contentTemplateID = workingTemplate.id
+        document.exportMetadata.contentTemplateName = workingTemplate.name
+        document.exportMetadata.contentTemplatePackData = workingTemplate.storedPackData
+        document.exportMetadata.renderedContentTemplateID = workingTemplate.id
+        let editorDocument: String
+        if workingTemplate.storedPackData != nil, let pack = try? workingTemplate.templatePack() {
+            editorDocument = (try? TemplatePackMarkdownEmitter.emit(document: document, pack: pack, surface: .authoring))
+                ?? LegacyDocumentRenderer.render(document: document)
+        } else {
+            editorDocument = (try? MarkdownTemplateRenderer.render(
+                template: workingTemplate,
+                document: document,
+                fallbackGoal: goal
+            )) ?? LegacyDocumentRenderer.render(document: document)
+        }
+        return DraftVersion.previewDraft(document: document, goalType: goal, editorDocument: editorDocument)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Template Authoring")
+                            .font(.title2.bold())
+                        Text("Template source only lives here. Save a valid markdown template to make it available in New Note and Edit.")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Close") {
+                        onDismiss()
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                ResponsiveSplitLayout(
+                    leadingMinWidth: 520,
+                    trailingMinWidth: 420,
+                    trailingFixedWidth: 460
+                ) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            TextField("Template Name", text: $name)
+                                .textFieldStyle(.roundedBorder)
+                            TextField("Subtitle", text: $subtitle)
+                                .textFieldStyle(.roundedBorder)
+                            TextField("Description", text: $templateDescription, axis: .vertical)
+                                .lineLimit(2...4)
+                                .textFieldStyle(.roundedBorder)
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Markdown Template Source")
+                                    .font(.headline)
+                                KeyboardFriendlyTextEditor(text: $templateBody)
+                                    .padding(16)
+                                    .frame(minHeight: 360)
+                                    .background(Color.white.opacity(0.96))
+                                    .clipShape(RoundedRectangle(cornerRadius: 22))
+                            }
+
+                            if let validationError {
+                                Label(validationError, systemImage: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                            } else {
+                                Label("Template source is valid.", systemImage: "checkmark.seal.fill")
+                                    .foregroundStyle(.green)
+                            }
+                        }
+                        .padding(.bottom, 28)
+                    }
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+                } trailing: {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            SectionTitle(title: "Live Preview", subtitle: "A sample dataset is rendered through the current markdown template.")
+                            if let previewDraft {
+                                StyledDraftPreview(version: previewDraft)
+                            } else {
+                                Text("Fix the validation issues to render a preview.")
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                                    .padding(20)
+                                    .background(Color.white.opacity(0.92))
+                                    .clipShape(RoundedRectangle(cornerRadius: 22))
+                            }
+                        }
+                        .padding(.bottom, 28)
+                    }
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            Divider()
+
+            HStack(spacing: 12) {
+                Button("Cancel") {
+                    onDismiss()
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+
+                Button("Save Template") {
+                    onSave(workingTemplate)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(validationError != nil || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(24)
+            .background(Color(NSColor.windowBackgroundColor))
+        }
+        .frame(minWidth: 1100, minHeight: 700, idealHeight: 760, alignment: .topLeading)
+        .background(Color(NSColor.windowBackgroundColor))
     }
 }
 
@@ -2607,6 +3123,15 @@ private struct SettingsView: View {
                 Toggle("Auto Save", isOn: $draftPreferences.autoSave)
             }
 
+            Section("Home Copy") {
+                TextField("Eyebrow", text: $draftPreferences.homeHeroCopy.eyebrow)
+                TextField("Headline", text: $draftPreferences.homeHeroCopy.title, axis: .vertical)
+                    .lineLimit(2...4)
+                TextField("Support Copy", text: $draftPreferences.homeHeroCopy.subtitle, axis: .vertical)
+                    .lineLimit(2...5)
+                TextField("Search Placeholder", text: $draftPreferences.homeHeroCopy.searchPlaceholder)
+            }
+
             Button("Save Settings") {
                 runModelTask(model) {
                     let updated = draftPreferences
@@ -2735,12 +3260,7 @@ private struct WorkspaceCustomizationSheet: View {
     @State private var cover: WorkspaceCover
     @State private var coverImagePath: String?
     @State private var showDeleteConfirmation = false
-    @FocusState private var focusedField: Field?
-
-    private enum Field: Hashable {
-        case title
-        case subtitle
-    }
+    @FocusState private var focusedField: WorkspaceCustomizationPresentation.FocusField?
 
     init(model: NotesCuratorAppModel, workspace: Workspace, onDismiss: @escaping () -> Void) {
         self.model = model
@@ -2770,6 +3290,13 @@ private struct WorkspaceCustomizationSheet: View {
                         Text("Workspace Subtitle")
                             .font(.headline)
                         ZStack(alignment: .topLeading) {
+                            if WorkspaceCustomizationPresentation.usesNativeTextViewForSubtitleEditing {
+                                KeyboardFriendlyTextEditor(
+                                    text: $subtitle,
+                                    requestFocus: focusedField == .subtitle
+                                )
+                            }
+
                             if subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 Text("Describe what this workspace is for.")
                                     .foregroundStyle(.tertiary)
@@ -2777,19 +3304,19 @@ private struct WorkspaceCustomizationSheet: View {
                                     .padding(.vertical, 14)
                                     .allowsHitTesting(false)
                             }
-                            TextEditor(text: $subtitle)
-                                .focused($focusedField, equals: .subtitle)
-                                .scrollContentBackground(.hidden)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
                         }
-                        .frame(minHeight: 100)
+                        .frame(minHeight: WorkspaceCustomizationPresentation.subtitleEditorMinHeight)
                         .background(Color.white)
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
                                 .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                                .allowsHitTesting(WorkspaceCustomizationPresentation.subtitleBorderAllowsHitTesting)
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .contentShape(RoundedRectangle(cornerRadius: 10))
+                        .onTapGesture {
+                            focusedField = WorkspaceCustomizationPresentation.focusTarget(afterSelecting: .subtitle)
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
@@ -2890,7 +3417,7 @@ private struct WorkspaceCustomizationSheet: View {
         .shadow(color: Color.black.opacity(0.16), radius: 32, y: 18)
         .onAppear {
             DispatchQueue.main.async {
-                focusedField = .title
+                focusedField = WorkspaceCustomizationPresentation.initialFocusedField
             }
         }
         .alert("Delete this workspace?", isPresented: $showDeleteConfirmation) {
@@ -2914,6 +3441,14 @@ private struct TemplatePreviewPage: View {
 
     private var previewDraft: DraftVersion {
         SampleTemplateFactory.previewDraft(for: template)
+    }
+
+    private var importedPreviewPayload: (preview: ImportedTemplatePreview, pack: TemplatePack)? {
+        guard let pack = try? template.templatePack(),
+              let preview = pack.importedPreview else {
+            return nil
+        }
+        return (preview, pack)
     }
 
     var body: some View {
@@ -2969,8 +3504,20 @@ private struct TemplatePreviewPage: View {
 
                 if template.kind == .content {
                     VStack(alignment: .leading, spacing: 14) {
-                        SectionTitle(title: "Example Output", subtitle: "A representative structured note generated with this content template.")
-                        StyledDraftPreview(version: previewDraft)
+                        SectionTitle(
+                            title: "Example Output",
+                            subtitle: importedPreviewPayload == nil
+                                ? "A representative structured note generated with this content template."
+                                : "A high-fidelity local preview of the imported LaTeX layout."
+                        )
+                        if let importedPreviewPayload {
+                            ImportedTemplatePreviewCard(
+                                preview: importedPreviewPayload.preview,
+                                pack: importedPreviewPayload.pack
+                            )
+                        } else {
+                            StyledDraftPreview(version: previewDraft)
+                        }
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 14) {
@@ -3057,6 +3604,7 @@ private struct PendingDraftState: View {
                 .fill(Color.white.opacity(0.76))
         )
     }
+
 }
 
 private struct FailedDraftState: View {
@@ -3492,12 +4040,6 @@ private extension GoalType {
     }
 }
 
-private extension Template {
-    var configuredGoalType: GoalType {
-        GoalType(rawValue: config["goal"] ?? "") ?? .structuredNotes
-    }
-}
-
 @MainActor
 private func presentOpenPanelURL(configure: (NSOpenPanel) -> Void) async -> URL? {
     let panel = NSOpenPanel()
@@ -3703,6 +4245,7 @@ private struct KeyboardFriendlyTextField: NSViewRepresentable {
 
 private struct KeyboardFriendlyTextEditor: NSViewRepresentable {
     @Binding var text: String
+    var requestFocus = false
     var onSave: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
@@ -3734,6 +4277,13 @@ private struct KeyboardFriendlyTextEditor: NSViewRepresentable {
             textView.string = text
         }
         textView.onSave = context.coordinator.handleSave
+
+        guard requestFocus, nsView.window?.firstResponder !== textView else { return }
+        DispatchQueue.main.async {
+            guard let window = nsView.window,
+                  window.firstResponder !== textView else { return }
+            window.makeFirstResponder(textView)
+        }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -3803,7 +4353,7 @@ private struct NativeClipboardTextEditor: NSViewRepresentable {
 }
 
 @MainActor
-private func configurePlainTextEditingView(_ textView: NSTextView, inset: NSSize = NSSize(width: 8, height: 8)) {
+private func configurePlainTextEditingView(_ textView: NSTextView, inset: NSSize = NSSize(width: 8, height: 14)) {
     textView.isEditable = true
     textView.isSelectable = true
     textView.isRichText = false
@@ -4059,82 +4609,36 @@ private struct FlowStageStrip: View {
 private enum SampleTemplateFactory {
     static func previewDraft(for template: Template) -> DraftVersion {
         let goal = goalType(for: template)
-        let contentTemplateName = template.kind == .content ? template.name : "Structured Notes"
+        let contentTemplate = template.kind == .content
+            ? template
+            : (Template.builtinContentTemplate(named: "Structured Notes", goalType: .structuredNotes) ?? Template.defaultTemplates.first { $0.kind == .content })!
         let visualTemplateName = template.kind == .visual ? template.name : "Oceanic Blue"
-        let title: String
-        let summary: String
-        let keyPoints: [String]
-        let sections: [StructuredSection]
-        let actionItems: [String]
+        let parsedTemplate = try? contentTemplate.markdownTemplate(fallbackGoal: goal)
+        let sampleKey = parsedTemplate?.frontMatter.sampleDataKey ?? contentTemplate.defaultSampleDataKey
+        var structured = TemplatePreviewSamples.document(for: sampleKey, fallbackGoal: goal)
+        structured.exportMetadata.contentTemplateID = contentTemplate.id
+        structured.exportMetadata.contentTemplateName = contentTemplate.name
+        structured.exportMetadata.contentTemplatePackData = contentTemplate.storedPackData
+        structured.exportMetadata.renderedContentTemplateID = contentTemplate.id
+        structured.exportMetadata.visualTemplateName = visualTemplateName
+        structured.exportMetadata.preferredFormat = .pdf
 
-        switch goal {
-        case .summary:
-            title = "Executive Topic Snapshot"
-            summary = "A concise overview that surfaces the main conclusion, the supporting evidence, and what matters next."
-            keyPoints = ["Short read", "Fast understanding", "Best for quick context sharing"]
-            sections = [
-                StructuredSection(title: "Summary", body: "This format compresses the source into a lighter, faster note designed for quick review."),
-            ]
-            actionItems = ["Share the snapshot", "Open the full material only if needed"]
-        case .formalDocument:
-            title = "Quarterly Strategy Brief"
-            summary = "A more polished structure with stronger headings, fuller explanations, and a presentation style suited for reports."
-            keyPoints = ["Clear sections", "Longer explanations", "Stronger report framing"]
-            sections = [
-                StructuredSection(title: "Context", body: "This template presents the material with a more formal rhythm and fuller explanation."),
-                StructuredSection(title: "Recommendation", body: "Use this when the output should feel closer to a brief, memo, or polished document.")
-            ]
-            actionItems = ["Review narrative flow", "Finalize for external sharing"]
-        case .actionItems:
-            title = "Action Plan"
-            summary = "A task-first format that emphasizes next steps, accountability, and follow-through."
-            keyPoints = ["Next steps first", "Operational focus", "Easy to turn into execution"]
-            sections = [
-                StructuredSection(title: "Immediate Priorities", body: "The output is shaped to move quickly from information to execution."),
-            ]
-            actionItems = ["Assign owners", "Track deadlines", "Review completion status"]
-        case .structuredNotes:
-            title = "Structured Study Notes"
-            summary = "A balanced note format with cue questions, key points, and follow-up sections that support understanding and review."
-            keyPoints = ["Balanced structure", "Readable at a glance", "Good default for deep study notes"]
-            sections = [
-                StructuredSection(title: "Core Idea", body: "The template organizes complex material into a study-friendly flow."),
-                StructuredSection(title: "Why It Helps", body: "It balances summary, explanation, and review prompts without feeling too heavy.")
-            ]
-            actionItems = ["Review key points", "Use the prompts for revision"]
+        let editorDocument: String
+        if contentTemplate.storedPackData != nil, let pack = try? contentTemplate.templatePack() {
+            editorDocument = (try? TemplatePackMarkdownEmitter.emit(document: structured, pack: pack, surface: .authoring))
+                ?? LegacyDocumentRenderer.render(document: structured)
+        } else {
+            editorDocument = (try? MarkdownTemplateRenderer.render(
+                template: contentTemplate,
+                document: structured,
+                fallbackGoal: goal
+            )) ?? LegacyDocumentRenderer.render(document: structured)
         }
 
-        let structured = StructuredDocument(
-            title: title,
-            summary: summary,
-            cueQuestions: ["What is the main value of this template?", "When should I choose it?"],
-            keyPoints: keyPoints,
-            sections: sections,
-            glossary: [GlossaryItem(term: "Template", definition: "A preset that shapes either the content structure or the visual presentation.")],
-            callouts: [StructuredCallout(kind: .note, title: "Preview", body: "This sample is illustrative so you can judge the format before using it.")],
-            studyCards: [StudyCard(question: "What does this template optimize for?", answer: summary)],
-            actionItems: actionItems,
-            reviewQuestions: ["Does this output style match the way I want to work?"],
-            imageSlots: [],
-            exportMetadata: ExportMetadata(
-                contentTemplateName: contentTemplateName,
-                visualTemplateName: visualTemplateName,
-                preferredFormat: .pdf
-            )
-        )
-
-        return DraftVersion(
-            workspaceItemId: UUID(),
+        return DraftVersion.previewDraft(
+            document: structured,
             goalType: goal,
-            outputLanguage: .english,
-            editorDocument: """
-            ## \(title)
-
-            \(summary)
-            """,
-            structuredDoc: structured,
-            sourceRefs: [],
-            imageSuggestions: []
+            editorDocument: editorDocument
         )
     }
 

@@ -269,6 +269,51 @@ struct StructuredCallout: Codable, Equatable, Sendable {
     }
 }
 
+enum StructuredTemplateBoxKind: String, Codable, CaseIterable, Equatable, Sendable {
+    case summary
+    case key
+    case warning
+    case code
+    case result
+    case exam
+    case explanation
+    case example
+}
+
+struct StructuredTemplateBox: Codable, Equatable, Sendable {
+    var kind: StructuredTemplateBoxKind
+    var title: String
+    var body: String
+    var items: [String]
+
+    init(
+        kind: StructuredTemplateBoxKind,
+        title: String,
+        body: String,
+        items: [String] = []
+    ) {
+        self.kind = kind
+        self.title = title
+        self.body = body
+        self.items = items
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case title
+        case body
+        case items
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decode(StructuredTemplateBoxKind.self, forKey: .kind)
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        body = try container.decodeIfPresent(String.self, forKey: .body) ?? ""
+        items = try container.decodeIfPresent([String].self, forKey: .items) ?? []
+    }
+}
+
 struct GlossaryItem: Codable, Equatable, Sendable {
     var term: String
     var definition: String
@@ -294,10 +339,58 @@ struct ImageSlot: Codable, Equatable, Sendable {
     var caption: String
 }
 
+enum TemplateFormat: String, Codable, Equatable, Sendable {
+    case legacyConfig
+    case markdownTemplate
+}
+
 struct ExportMetadata: Codable, Equatable, Sendable {
+    var contentTemplateID: UUID?
     var contentTemplateName: String
+    var contentTemplatePackData: Data?
+    var renderedContentTemplateID: UUID?
+    var visualTemplateID: UUID?
     var visualTemplateName: String
     var preferredFormat: ExportFormat
+
+    init(
+        contentTemplateID: UUID? = nil,
+        contentTemplateName: String,
+        contentTemplatePackData: Data? = nil,
+        renderedContentTemplateID: UUID? = nil,
+        visualTemplateID: UUID? = nil,
+        visualTemplateName: String,
+        preferredFormat: ExportFormat
+    ) {
+        self.contentTemplateID = contentTemplateID
+        self.contentTemplateName = contentTemplateName
+        self.contentTemplatePackData = contentTemplatePackData
+        self.renderedContentTemplateID = renderedContentTemplateID
+        self.visualTemplateID = visualTemplateID
+        self.visualTemplateName = visualTemplateName
+        self.preferredFormat = preferredFormat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case contentTemplateID
+        case contentTemplateName
+        case contentTemplatePackData
+        case renderedContentTemplateID
+        case visualTemplateID
+        case visualTemplateName
+        case preferredFormat
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        contentTemplateID = try container.decodeIfPresent(UUID.self, forKey: .contentTemplateID)
+        contentTemplateName = try container.decode(String.self, forKey: .contentTemplateName)
+        contentTemplatePackData = try container.decodeIfPresent(Data.self, forKey: .contentTemplatePackData)
+        renderedContentTemplateID = try container.decodeIfPresent(UUID.self, forKey: .renderedContentTemplateID)
+        visualTemplateID = try container.decodeIfPresent(UUID.self, forKey: .visualTemplateID)
+        visualTemplateName = try container.decode(String.self, forKey: .visualTemplateName)
+        preferredFormat = try container.decode(ExportFormat.self, forKey: .preferredFormat)
+    }
 }
 
 struct DocumentTheme: Equatable, Sendable {
@@ -412,6 +505,7 @@ struct StructuredDocument: Codable, Equatable, Sendable {
     var sections: [StructuredSection]
     var glossary: [GlossaryItem]
     var callouts: [StructuredCallout]
+    var templateBoxes: [StructuredTemplateBox]
     var studyCards: [StudyCard]
     var actionItems: [String]
     var reviewQuestions: [String]
@@ -426,6 +520,7 @@ struct StructuredDocument: Codable, Equatable, Sendable {
         sections: [StructuredSection],
         glossary: [GlossaryItem] = [],
         callouts: [StructuredCallout] = [],
+        templateBoxes: [StructuredTemplateBox] = [],
         studyCards: [StudyCard] = [],
         actionItems: [String],
         reviewQuestions: [String] = [],
@@ -439,6 +534,7 @@ struct StructuredDocument: Codable, Equatable, Sendable {
         self.sections = sections
         self.glossary = glossary
         self.callouts = callouts
+        self.templateBoxes = templateBoxes
         self.studyCards = studyCards
         self.actionItems = actionItems
         self.reviewQuestions = reviewQuestions
@@ -454,6 +550,7 @@ struct StructuredDocument: Codable, Equatable, Sendable {
         case sections
         case glossary
         case callouts
+        case templateBoxes
         case studyCards
         case actionItems
         case reviewQuestions
@@ -470,6 +567,7 @@ struct StructuredDocument: Codable, Equatable, Sendable {
         sections = try container.decodeIfPresent([StructuredSection].self, forKey: .sections) ?? []
         glossary = try container.decodeIfPresent([GlossaryItem].self, forKey: .glossary) ?? []
         callouts = try container.decodeIfPresent([StructuredCallout].self, forKey: .callouts) ?? []
+        templateBoxes = try container.decodeIfPresent([StructuredTemplateBox].self, forKey: .templateBoxes) ?? []
         studyCards = try container.decodeIfPresent([StudyCard].self, forKey: .studyCards) ?? []
         actionItems = try container.decodeIfPresent([String].self, forKey: .actionItems) ?? []
         reviewQuestions = try container.decodeIfPresent([String].self, forKey: .reviewQuestions) ?? []
@@ -573,6 +671,7 @@ struct DraftVersion: Identifiable, Codable, Equatable, Sendable {
     var origin: DraftVersionOrigin
     var parentVersionId: UUID?
     var createdAt: Date
+    var generationSourceText: String?
 
     init(
         id: UUID = UUID(),
@@ -585,7 +684,8 @@ struct DraftVersion: Identifiable, Codable, Equatable, Sendable {
         imageSuggestions: [ImageSuggestion],
         origin: DraftVersionOrigin = .manual,
         parentVersionId: UUID? = nil,
-        createdAt: Date = .now
+        createdAt: Date = .now,
+        generationSourceText: String? = nil
     ) {
         self.id = id
         self.workspaceItemId = workspaceItemId
@@ -598,6 +698,7 @@ struct DraftVersion: Identifiable, Codable, Equatable, Sendable {
         self.origin = origin
         self.parentVersionId = parentVersionId
         self.createdAt = createdAt
+        self.generationSourceText = generationSourceText
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -612,6 +713,7 @@ struct DraftVersion: Identifiable, Codable, Equatable, Sendable {
         case origin
         case parentVersionId
         case createdAt
+        case generationSourceText
     }
 
     init(from decoder: any Decoder) throws {
@@ -627,6 +729,7 @@ struct DraftVersion: Identifiable, Codable, Equatable, Sendable {
         origin = try container.decodeIfPresent(DraftVersionOrigin.self, forKey: .origin) ?? .manual
         parentVersionId = try container.decodeIfPresent(UUID.self, forKey: .parentVersionId)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
+        generationSourceText = try container.decodeIfPresent(String.self, forKey: .generationSourceText)
     }
 }
 
@@ -645,20 +748,62 @@ struct Template: Identifiable, Codable, Equatable, Sendable {
     var kind: TemplateKind
     var scope: TemplateScope
     var name: String
+    var subtitle: String
+    var templateDescription: String
+    var format: TemplateFormat
+    var body: String
     var config: [String: String]
+    var storedPackData: Data?
 
     init(
         id: UUID = UUID(),
         kind: TemplateKind,
         scope: TemplateScope,
         name: String,
-        config: [String: String]
+        subtitle: String = "",
+        templateDescription: String = "",
+        format: TemplateFormat = .legacyConfig,
+        body: String = "",
+        config: [String: String],
+        storedPackData: Data? = nil
     ) {
         self.id = id
         self.kind = kind
         self.scope = scope
         self.name = name
+        self.subtitle = subtitle
+        self.templateDescription = templateDescription
+        self.format = format
+        self.body = body
         self.config = config
+        self.storedPackData = storedPackData
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case kind
+        case scope
+        case name
+        case subtitle
+        case templateDescription
+        case format
+        case body
+        case config
+        case storedPackData
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        kind = try container.decode(TemplateKind.self, forKey: .kind)
+        scope = try container.decode(TemplateScope.self, forKey: .scope)
+        name = try container.decode(String.self, forKey: .name)
+        subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle) ?? ""
+        templateDescription = try container.decodeIfPresent(String.self, forKey: .templateDescription) ?? ""
+        format = try container.decodeIfPresent(TemplateFormat.self, forKey: .format) ?? .legacyConfig
+        body = try container.decodeIfPresent(String.self, forKey: .body) ?? ""
+        config = try container.decodeIfPresent([String: String].self, forKey: .config) ?? [:]
+        storedPackData = try container.decodeIfPresent(Data.self, forKey: .storedPackData)
     }
 }
 
@@ -685,6 +830,20 @@ struct ExportRecord: Identifiable, Codable, Equatable, Sendable {
         self.outputPath = outputPath
         self.createdAt = createdAt
     }
+}
+
+struct HomeHeroCopy: Codable, Equatable, Sendable {
+    var eyebrow: String
+    var title: String
+    var subtitle: String
+    var searchPlaceholder: String
+
+    static let defaultValue = Self(
+        eyebrow: "Resume Flow",
+        title: "Pick up the note that matters right now.",
+        subtitle: "Keep workspaces as context, but keep today's active note at the center of intake, editing, review, and export.",
+        searchPlaceholder: "Search workspaces or drafts"
+    )
 }
 
 enum SidebarSection: String, Codable, CaseIterable, Equatable, Sendable {
@@ -876,6 +1035,7 @@ struct AppPreferences: Codable, Equatable, Sendable {
     var customChunkModelName: String
     var customPolishModelName: String
     var customRepairModelName: String
+    var homeHeroCopy: HomeHeroCopy
 
     init(
         providerKind: ProviderKind,
@@ -890,7 +1050,8 @@ struct AppPreferences: Codable, Equatable, Sendable {
         enableWorkflowRouting: Bool = false,
         customChunkModelName: String = HostedService.nvidia.recommendedChunkModel,
         customPolishModelName: String = HostedService.nvidia.recommendedPolishModel,
-        customRepairModelName: String = HostedService.nvidia.recommendedRepairModel
+        customRepairModelName: String = HostedService.nvidia.recommendedRepairModel,
+        homeHeroCopy: HomeHeroCopy = .defaultValue
     ) {
         self.hostedService = hostedService
         self.providerKind = providerKind
@@ -905,6 +1066,7 @@ struct AppPreferences: Codable, Equatable, Sendable {
         self.customChunkModelName = customChunkModelName
         self.customPolishModelName = customPolishModelName
         self.customRepairModelName = customRepairModelName
+        self.homeHeroCopy = homeHeroCopy
     }
 
     static let legacyDefaultLocalOllama = AppPreferences(
@@ -985,6 +1147,7 @@ struct AppPreferences: Codable, Equatable, Sendable {
         case customChunkModelName
         case customPolishModelName
         case customRepairModelName
+        case homeHeroCopy
     }
 
     init(from decoder: any Decoder) throws {
@@ -1009,6 +1172,7 @@ struct AppPreferences: Codable, Equatable, Sendable {
             ?? hostedService.recommendedPolishModel
         customRepairModelName = try container.decodeIfPresent(String.self, forKey: .customRepairModelName)
             ?? hostedService.recommendedRepairModel
+        homeHeroCopy = try container.decodeIfPresent(HomeHeroCopy.self, forKey: .homeHeroCopy) ?? .defaultValue
     }
 
     var legacyMigrationTarget: AppPreferences? {

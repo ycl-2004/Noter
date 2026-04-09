@@ -12,6 +12,7 @@ struct ProviderDraftRequest: Codable, Equatable, Sendable {
     var outputLanguage: OutputLanguage
     var contentTemplateName: String
     var visualTemplateName: String
+    var contentTemplate: Template? = nil
     var generationMode: DraftGenerationMode = .finalDocument
 }
 
@@ -23,6 +24,7 @@ struct ProviderDraftResponse: Codable, Equatable, Sendable {
     var sections: [StructuredSection]
     var glossary: [GlossaryItem]
     var callouts: [StructuredCallout]
+    var templateBoxes: [StructuredTemplateBox]
     var studyCards: [StudyCard]
     var actionItems: [String]
     var reviewQuestions: [String]
@@ -36,6 +38,7 @@ struct ProviderDraftResponse: Codable, Equatable, Sendable {
         sections: [StructuredSection],
         glossary: [GlossaryItem] = [],
         callouts: [StructuredCallout] = [],
+        templateBoxes: [StructuredTemplateBox] = [],
         studyCards: [StudyCard] = [],
         actionItems: [String],
         reviewQuestions: [String] = [],
@@ -48,10 +51,42 @@ struct ProviderDraftResponse: Codable, Equatable, Sendable {
         self.sections = sections
         self.glossary = glossary
         self.callouts = callouts
+        self.templateBoxes = templateBoxes
         self.studyCards = studyCards
         self.actionItems = actionItems
         self.reviewQuestions = reviewQuestions
         self.renderedDocument = renderedDocument
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case title
+        case summary
+        case cueQuestions
+        case keyPoints
+        case sections
+        case glossary
+        case callouts
+        case templateBoxes
+        case studyCards
+        case actionItems
+        case reviewQuestions
+        case renderedDocument
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
+        cueQuestions = try container.decodeIfPresent([String].self, forKey: .cueQuestions) ?? []
+        keyPoints = try container.decodeIfPresent([String].self, forKey: .keyPoints) ?? []
+        sections = try container.decodeIfPresent([StructuredSection].self, forKey: .sections) ?? []
+        glossary = try container.decodeIfPresent([GlossaryItem].self, forKey: .glossary) ?? []
+        callouts = try container.decodeIfPresent([StructuredCallout].self, forKey: .callouts) ?? []
+        templateBoxes = try container.decodeIfPresent([StructuredTemplateBox].self, forKey: .templateBoxes) ?? []
+        studyCards = try container.decodeIfPresent([StudyCard].self, forKey: .studyCards) ?? []
+        actionItems = try container.decodeIfPresent([String].self, forKey: .actionItems) ?? []
+        reviewQuestions = try container.decodeIfPresent([String].self, forKey: .reviewQuestions) ?? []
+        renderedDocument = try container.decodeIfPresent(String.self, forKey: .renderedDocument) ?? ""
     }
 
     static let empty = ProviderDraftResponse(
@@ -62,6 +97,7 @@ struct ProviderDraftResponse: Codable, Equatable, Sendable {
         sections: [],
         glossary: [],
         callouts: [],
+        templateBoxes: [],
         studyCards: [],
         actionItems: [],
         reviewQuestions: [],
@@ -220,22 +256,33 @@ struct DocumentProcessingPipeline: Sendable {
     func process(
         intake: IntakeRequest,
         workspaceItemId: UUID,
+        contentTemplate: Template? = nil,
+        visualTemplate: Template? = nil,
         onStageChange: @Sendable (ProcessingStage) -> Void = { _ in }
     ) async throws -> DraftVersion {
         let interactive = try await processInteractive(
             intake: intake,
             workspaceItemId: workspaceItemId,
+            contentTemplate: contentTemplate,
+            visualTemplate: visualTemplate,
             onStageChange: onStageChange
         )
         guard interactive.shouldRefineInBackground else {
             return interactive.version
         }
-        return try await refineDraftVersion(interactive.version, sourceText: interactive.sourceText)
+        return try await refineDraftVersion(
+            interactive.version,
+            sourceText: interactive.sourceText,
+            contentTemplate: contentTemplate,
+            visualTemplate: visualTemplate
+        )
     }
 
     func processInteractive(
         intake: IntakeRequest,
         workspaceItemId: UUID,
+        contentTemplate: Template? = nil,
+        visualTemplate: Template? = nil,
         onStageChange: @Sendable (ProcessingStage) -> Void = { _ in }
     ) async throws -> InteractiveDraftResult {
         onStageChange(.parseDocument)
@@ -263,7 +310,8 @@ struct DocumentProcessingPipeline: Sendable {
                 goalType: intake.goalType,
                 outputLanguage: intake.outputLanguage,
                 contentTemplateName: intake.contentTemplateName,
-                visualTemplateName: intake.visualTemplateName
+                visualTemplateName: intake.visualTemplateName,
+                contentTemplate: contentTemplate
             )
         )
         try Task.checkCancellation()
@@ -281,33 +329,33 @@ struct DocumentProcessingPipeline: Sendable {
 
         onStageChange(.completed)
 
+        let structuredDocument = buildStructuredDocument(
+            from: localizedDraft,
+            goalType: intake.goalType,
+            outputLanguage: intake.outputLanguage,
+            contentTemplate: contentTemplate,
+            visualTemplate: visualTemplate,
+            contentTemplateName: intake.contentTemplateName,
+            visualTemplateName: intake.visualTemplateName,
+            imageSuggestions: imageSuggestions
+        )
+        let editorDocument = try renderEditorDocument(
+            from: structuredDocument,
+            goalType: intake.goalType,
+            contentTemplate: contentTemplate
+        )
+
         return InteractiveDraftResult(
             version: DraftVersion(
                 workspaceItemId: workspaceItemId,
                 goalType: intake.goalType,
                 outputLanguage: intake.outputLanguage,
-                editorDocument: localizedDraft.renderedDocument,
-                structuredDoc: StructuredDocument(
-                    title: localizedDraft.title,
-                    summary: localizedDraft.summary,
-                    cueQuestions: localizedDraft.cueQuestions,
-                    keyPoints: localizedDraft.keyPoints,
-                    sections: localizedDraft.sections,
-                    glossary: localizedDraft.glossary,
-                    callouts: localizedDraft.callouts,
-                    studyCards: localizedDraft.studyCards,
-                    actionItems: localizedDraft.actionItems,
-                    reviewQuestions: localizedDraft.reviewQuestions,
-                    imageSlots: imageSuggestions.map { ImageSlot(suggestionID: $0.id, caption: $0.title) },
-                    exportMetadata: ExportMetadata(
-                        contentTemplateName: intake.contentTemplateName,
-                        visualTemplateName: intake.visualTemplateName,
-                        preferredFormat: .pdf
-                    )
-                ),
+                editorDocument: editorDocument,
+                structuredDoc: structuredDocument,
                 sourceRefs: parsed.sources,
                 imageSuggestions: imageSuggestions,
-                origin: .interactive
+                origin: .interactive,
+                generationSourceText: combinedContext
             ),
             sourceText: combinedContext,
             shouldRefineInBackground: shouldRefineInBackground()
@@ -316,7 +364,9 @@ struct DocumentProcessingPipeline: Sendable {
 
     func refineDraftVersion(
         _ version: DraftVersion,
-        sourceText: String
+        sourceText: String,
+        contentTemplate: Template? = nil,
+        visualTemplate: Template? = nil
     ) async throws -> DraftVersion {
         let provider = try await activeProvider()
         let request = ProviderDraftRequest(
@@ -324,7 +374,8 @@ struct DocumentProcessingPipeline: Sendable {
             goalType: version.goalType,
             outputLanguage: version.outputLanguage,
             contentTemplateName: version.structuredDoc.exportMetadata.contentTemplateName,
-            visualTemplateName: version.structuredDoc.exportMetadata.visualTemplateName
+            visualTemplateName: version.structuredDoc.exportMetadata.visualTemplateName,
+            contentTemplate: contentTemplate
         )
 
         let polishedDraft = try await polishDraftIfNeeded(
@@ -339,33 +390,86 @@ struct DocumentProcessingPipeline: Sendable {
         try Task.checkCancellation()
 
         let normalized = validated.normalizedResponse
+        let structuredDocument = buildStructuredDocument(
+            from: normalized,
+            goalType: version.goalType,
+            outputLanguage: version.outputLanguage,
+            contentTemplate: contentTemplate,
+            visualTemplate: visualTemplate,
+            contentTemplateName: version.structuredDoc.exportMetadata.contentTemplateName,
+            visualTemplateName: version.structuredDoc.exportMetadata.visualTemplateName,
+            imageSuggestions: version.imageSuggestions
+        )
+        let editorDocument = try renderEditorDocument(
+            from: structuredDocument,
+            goalType: version.goalType,
+            contentTemplate: contentTemplate
+        )
+
         return DraftVersion(
             workspaceItemId: version.workspaceItemId,
             goalType: version.goalType,
             outputLanguage: version.outputLanguage,
-            editorDocument: normalized.renderedDocument,
-            structuredDoc: StructuredDocument(
-                title: normalized.title,
-                summary: normalized.summary,
-                cueQuestions: normalized.cueQuestions,
-                keyPoints: normalized.keyPoints,
-                sections: normalized.sections,
-                glossary: normalized.glossary,
-                callouts: normalized.callouts,
-                studyCards: normalized.studyCards,
-                actionItems: normalized.actionItems,
-                reviewQuestions: normalized.reviewQuestions,
-                imageSlots: version.imageSuggestions.map { ImageSlot(suggestionID: $0.id, caption: $0.title) },
-                exportMetadata: ExportMetadata(
-                    contentTemplateName: version.structuredDoc.exportMetadata.contentTemplateName,
-                    visualTemplateName: version.structuredDoc.exportMetadata.visualTemplateName,
-                    preferredFormat: .pdf
-                )
-            ),
+            editorDocument: editorDocument,
+            structuredDoc: structuredDocument,
             sourceRefs: version.sourceRefs,
             imageSuggestions: version.imageSuggestions,
             origin: .refined,
-            parentVersionId: version.id
+            parentVersionId: version.id,
+            generationSourceText: sourceText
+        )
+    }
+
+    func regenerateDraft(
+        sourceText: String,
+        workspaceItemId: UUID,
+        goalType: GoalType,
+        outputLanguage: OutputLanguage,
+        sourceRefs: [SourceReference],
+        imageSuggestions: [ImageSuggestion],
+        contentTemplate: Template? = nil,
+        visualTemplate: Template? = nil,
+        contentTemplateName: String,
+        visualTemplateName: String
+    ) async throws -> DraftVersion {
+        let provider = try await activeProvider()
+        let request = ProviderDraftRequest(
+            rawText: sourceText,
+            goalType: goalType,
+            outputLanguage: outputLanguage,
+            contentTemplateName: contentTemplateName,
+            visualTemplateName: visualTemplateName,
+            contentTemplate: contentTemplate
+        )
+
+        let draft = try await generateDraft(using: provider, request: request)
+        let localizedDraft = localized(response: draft, language: outputLanguage)
+        let structuredDocument = buildStructuredDocument(
+            from: localizedDraft,
+            goalType: goalType,
+            outputLanguage: outputLanguage,
+            contentTemplate: contentTemplate,
+            visualTemplate: visualTemplate,
+            contentTemplateName: contentTemplateName,
+            visualTemplateName: visualTemplateName,
+            imageSuggestions: imageSuggestions
+        )
+        let editorDocument = try renderEditorDocument(
+            from: structuredDocument,
+            goalType: goalType,
+            contentTemplate: contentTemplate
+        )
+
+        return DraftVersion(
+            workspaceItemId: workspaceItemId,
+            goalType: goalType,
+            outputLanguage: outputLanguage,
+            editorDocument: editorDocument,
+            structuredDoc: structuredDocument,
+            sourceRefs: sourceRefs,
+            imageSuggestions: imageSuggestions,
+            origin: .manual,
+            generationSourceText: sourceText
         )
     }
 
@@ -630,12 +734,22 @@ struct DocumentProcessingPipeline: Sendable {
     }
 
     private func localized(response: ProviderDraftResponse, language: OutputLanguage) -> ProviderDraftResponse {
-        guard language == .english else { return response }
+        response
+    }
 
-        let rendered = response.renderedDocument.contains("Summary") ? response.renderedDocument :
-            "Summary\n\(response.summary)\n\nKey Points\n" + response.keyPoints.map { "- \($0)" }.joined(separator: "\n")
-
-        return ProviderDraftResponse(
+    private func buildStructuredDocument(
+        from response: ProviderDraftResponse,
+        goalType: GoalType,
+        outputLanguage: OutputLanguage,
+        contentTemplate: Template?,
+        visualTemplate: Template?,
+        contentTemplateName: String,
+        visualTemplateName: String,
+        imageSuggestions: [ImageSuggestion]
+    ) -> StructuredDocument {
+        let resolvedTemplate = contentTemplate ?? Template.builtinContentTemplate(named: contentTemplateName, goalType: goalType)
+        let resolvedVisualTemplate = visualTemplate
+        return StructuredDocument(
             title: response.title,
             summary: response.summary,
             cueQuestions: response.cueQuestions,
@@ -643,10 +757,43 @@ struct DocumentProcessingPipeline: Sendable {
             sections: response.sections,
             glossary: response.glossary,
             callouts: response.callouts,
+            templateBoxes: response.templateBoxes,
             studyCards: response.studyCards,
             actionItems: response.actionItems,
             reviewQuestions: response.reviewQuestions,
-            renderedDocument: rendered
+            imageSlots: imageSuggestions.map { ImageSlot(suggestionID: $0.id, caption: $0.title) },
+            exportMetadata: ExportMetadata(
+                contentTemplateID: resolvedTemplate?.id,
+                contentTemplateName: resolvedTemplate?.name ?? contentTemplateName,
+                contentTemplatePackData: resolvedTemplate?.storedPackData,
+                renderedContentTemplateID: resolvedTemplate?.id,
+                visualTemplateID: resolvedVisualTemplate?.id,
+                visualTemplateName: resolvedVisualTemplate?.name ?? visualTemplateName,
+                preferredFormat: .pdf
+            )
+        )
+    }
+
+    private func renderEditorDocument(
+        from document: StructuredDocument,
+        goalType: GoalType,
+        contentTemplate: Template?
+    ) throws -> String {
+        let resolvedTemplate = contentTemplate ?? Template.builtinContentTemplate(
+            named: document.exportMetadata.contentTemplateName,
+            goalType: goalType
+        )
+        guard let resolvedTemplate else {
+            return LegacyDocumentRenderer.render(document: document)
+        }
+        if resolvedTemplate.storedPackData != nil {
+            let pack = try resolvedTemplate.templatePack()
+            return try TemplatePackMarkdownEmitter.emit(document: document, pack: pack, surface: .authoring)
+        }
+        return try MarkdownTemplateRenderer.render(
+            template: resolvedTemplate,
+            document: document,
+            fallbackGoal: goalType
         )
     }
 }
@@ -661,6 +808,7 @@ private extension DraftVersion {
             sections: structuredDoc.sections,
             glossary: structuredDoc.glossary,
             callouts: structuredDoc.callouts,
+            templateBoxes: structuredDoc.templateBoxes,
             studyCards: structuredDoc.studyCards,
             actionItems: structuredDoc.actionItems,
             reviewQuestions: structuredDoc.reviewQuestions,

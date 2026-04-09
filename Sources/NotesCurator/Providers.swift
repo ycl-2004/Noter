@@ -38,6 +38,7 @@ enum ProviderResponseParser {
         let sections = normalizeSections(from: json["sections"])
         let glossary = normalizeGlossary(from: json["glossary"] ?? json["definitions"])
         let callouts = normalizeCallouts(from: json["callouts"], fallbackJSON: json)
+        let templateBoxes = normalizeTemplateBoxes(from: json["templateBoxes"], fallbackJSON: json)
         let studyCards = normalizeStudyCards(
             from: json["studyCards"]
                 ?? json["reviewCards"]
@@ -62,6 +63,7 @@ enum ProviderResponseParser {
             sections: sections,
             glossary: glossary,
             callouts: callouts,
+            templateBoxes: templateBoxes,
             studyCards: studyCards,
             actionItems: actionItems,
             reviewQuestions: reviewQuestions,
@@ -210,6 +212,13 @@ enum ProviderResponseParser {
                 guard !title.isEmpty || !body.isEmpty else { return nil }
                 return StructuredCallout(kind: callout.kind, title: title, body: body)
             },
+            templateBoxes: response.templateBoxes.compactMap { box in
+                let title = sanitizeText(box.title)
+                let body = sanitizeText(box.body)
+                let items = box.items.map(sanitizeText).filter { !$0.isEmpty }
+                guard !title.isEmpty || !body.isEmpty || !items.isEmpty else { return nil }
+                return StructuredTemplateBox(kind: box.kind, title: title, body: body, items: items)
+            },
             studyCards: response.studyCards.compactMap { card in
                 let question = sanitizeText(card.question)
                 let answer = sanitizeText(card.answer)
@@ -315,6 +324,67 @@ enum ProviderResponseParser {
         return callouts
     }
 
+    private static func normalizeTemplateBoxes(from value: Any?, fallbackJSON: [String: Any]) -> [StructuredTemplateBox] {
+        var boxes: [StructuredTemplateBox] = []
+
+        if let array = value as? [Any] {
+            boxes += array.compactMap { element in
+                guard let dictionary = element as? [String: Any],
+                      let kind = templateBoxKind(from: dictionary["kind"] as? String ?? dictionary["type"] as? String ?? dictionary["boxKind"] as? String) else {
+                    return nil
+                }
+
+                let title = dictionary["title"] as? String
+                    ?? dictionary["label"] as? String
+                    ?? defaultTemplateBoxTitle(for: kind)
+                let items = normalizeStrings(from: dictionary["items"] ?? dictionary["bulletPoints"] ?? dictionary["bullets"])
+                let body = dictionary["body"] as? String
+                    ?? dictionary["summary"] as? String
+                    ?? dictionary["description"] as? String
+                    ?? dictionary["explanation"] as? String
+                    ?? dictionary["code"] as? String
+                    ?? items.joined(separator: "\n")
+
+                guard !body.isEmpty || !items.isEmpty else { return nil }
+                return StructuredTemplateBox(kind: kind, title: title, body: body, items: items)
+            }
+        }
+
+        if boxes.isEmpty {
+            let fallbackMappings: [(String, StructuredTemplateBoxKind)] = [
+                ("summaryBoxes", .summary),
+                ("keyBoxes", .key),
+                ("highlights", .key),
+                ("warnings", .warning),
+                ("warningBoxes", .warning),
+                ("codeBoxes", .code),
+                ("codeExamples", .code),
+                ("commands", .code),
+                ("snippets", .code),
+                ("resultBoxes", .result),
+                ("results", .result),
+                ("checklists", .result),
+                ("prerequisites", .result),
+                ("examBoxes", .exam),
+                ("exercises", .exam),
+                ("interviewQuestions", .exam),
+                ("explanationBoxes", .explanation),
+                ("explanations", .explanation),
+                ("exampleBoxes", .example),
+                ("examples", .example),
+            ]
+
+            for (key, kind) in fallbackMappings {
+                let items = normalizeStrings(from: fallbackJSON[key])
+                boxes.append(contentsOf: items.map {
+                    StructuredTemplateBox(kind: kind, title: defaultTemplateBoxTitle(for: kind), body: $0)
+                })
+            }
+        }
+
+        return boxes
+    }
+
     private static func normalizeStudyCards(from value: Any?) -> [StudyCard] {
         guard let array = value as? [Any] else { return [] }
         return array.compactMap { element in
@@ -340,6 +410,47 @@ enum ProviderResponseParser {
         case .keyIdea: return "Key Idea"
         case .note: return "Note"
         case .warning: return "Warning"
+        case .example: return "Example"
+        }
+    }
+
+    private static func templateBoxKind(from rawValue: String?) -> StructuredTemplateBoxKind? {
+        guard let rawValue else { return nil }
+        switch rawValue
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "") {
+        case "summary", "summarybox", "overviewbox":
+            return .summary
+        case "key", "keybox", "takeaway", "takeaways", "highlight", "highlights":
+            return .key
+        case "warning", "warningbox", "pitfall", "pitfalls":
+            return .warning
+        case "code", "codebox", "command", "commands", "snippet", "snippets":
+            return .code
+        case "result", "resultbox", "checklist", "checklists", "prepared":
+            return .result
+        case "exam", "exambox", "exercise", "exercises", "quiz", "interview":
+            return .exam
+        case "explanation", "explanationbox", "explainer":
+            return .explanation
+        case "example", "examplebox":
+            return .example
+        default:
+            return nil
+        }
+    }
+
+    private static func defaultTemplateBoxTitle(for kind: StructuredTemplateBoxKind) -> String {
+        switch kind {
+        case .summary: return "Summary"
+        case .key: return "Key Box"
+        case .warning: return "Warning"
+        case .code: return "Code"
+        case .result: return "Result"
+        case .exam: return "Exam"
+        case .explanation: return "Explanation"
         case .example: return "Example"
         }
     }
@@ -503,12 +614,20 @@ struct HeuristicCurationProvider: ProviderAdapter {
             sentences: sentences,
             language: input.outputLanguage
         )
+        let reviewQuestions = input.generationMode == .chunkDigest ? [] : buildReviewQuestions(from: keyPoints, language: input.outputLanguage)
+        let templateBoxes = buildTemplateBoxes(
+            summary: summary,
+            paragraphs: paragraphs,
+            sentences: sentences,
+            actionItems: actionItems,
+            reviewQuestions: reviewQuestions,
+            language: input.outputLanguage
+        )
         let studyCards = buildStudyCards(
             from: keyPoints.isEmpty ? [summary] : keyPoints,
             language: input.outputLanguage,
             preferredCount: input.generationMode == .chunkDigest ? 2 : 5
         )
-        let reviewQuestions = input.generationMode == .chunkDigest ? [] : buildReviewQuestions(from: keyPoints, language: input.outputLanguage)
         let finalSections = sections.isEmpty ? [
             StructuredSection(
                 title: input.outputLanguage == .chinese ? "整理结果" : "Curated Notes",
@@ -526,6 +645,7 @@ struct HeuristicCurationProvider: ProviderAdapter {
             sections: finalSections,
             glossary: glossary,
             callouts: callouts,
+            templateBoxes: templateBoxes,
             studyCards: studyCards,
             actionItems: actionItems,
             reviewQuestions: reviewQuestions,
@@ -537,6 +657,7 @@ struct HeuristicCurationProvider: ProviderAdapter {
                 sections: finalSections,
                 glossary: glossary,
                 callouts: callouts,
+                templateBoxes: templateBoxes,
                 studyCards: studyCards,
                 actionItems: actionItems,
                 reviewQuestions: reviewQuestions,
@@ -577,6 +698,7 @@ struct HeuristicCurationProvider: ProviderAdapter {
         normalized.sections = uniqueSections(normalized.sections)
         normalized.glossary = uniqueGlossary(normalized.glossary)
         normalized.callouts = uniqueCallouts(normalized.callouts)
+        normalized.templateBoxes = uniqueTemplateBoxes(normalized.templateBoxes)
         normalized.studyCards = uniqueStudyCards(normalized.studyCards)
         normalized.actionItems = uniqueNonEmptyStrings(normalized.actionItems)
         normalized.reviewQuestions = uniqueNonEmptyStrings(normalized.reviewQuestions)
@@ -683,6 +805,74 @@ struct HeuristicCurationProvider: ProviderAdapter {
         return callouts
     }
 
+    private func buildTemplateBoxes(
+        summary: String,
+        paragraphs: [String],
+        sentences: [String],
+        actionItems: [String],
+        reviewQuestions: [String],
+        language: OutputLanguage
+    ) -> [StructuredTemplateBox] {
+        var boxes: [StructuredTemplateBox] = [
+            StructuredTemplateBox(
+                kind: .key,
+                title: language == .chinese ? "一句话抓重点" : "Core Takeaway",
+                body: summary
+            )
+        ]
+
+        if let warningSentence = sentences.first(where: {
+            let lowercased = $0.lowercased()
+            return lowercased.contains("risk")
+                || lowercased.contains("warning")
+                || lowercased.contains("注意")
+                || lowercased.contains("不要")
+                || lowercased.contains("常见坑")
+        }) {
+            boxes.append(
+                StructuredTemplateBox(
+                    kind: .warning,
+                    title: language == .chinese ? "注意事项" : "Watch Out",
+                    body: warningSentence
+                )
+            )
+        }
+
+        if let commandParagraph = paragraphs.first(where: looksLikeCodeOrCommands(_:)) {
+            boxes.append(
+                StructuredTemplateBox(
+                    kind: .code,
+                    title: language == .chinese ? "命令或代码" : "Command or Code",
+                    body: commandParagraph
+                )
+            )
+        }
+
+        if !actionItems.isEmpty {
+            boxes.append(
+                StructuredTemplateBox(
+                    kind: .result,
+                    title: language == .chinese ? "落地结果" : "Practical Result",
+                    body: "",
+                    items: Array(actionItems.prefix(4))
+                )
+            )
+        }
+
+        if !reviewQuestions.isEmpty {
+            boxes.append(
+                StructuredTemplateBox(
+                    kind: .exam,
+                    title: language == .chinese ? "自测一下" : "Quick Check",
+                    body: "",
+                    items: Array(reviewQuestions.prefix(3))
+                )
+            )
+        }
+
+        return boxes
+    }
+
     private func extractGlossary(from text: String) -> [GlossaryItem] {
         let tokens = text
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
@@ -727,6 +917,7 @@ struct HeuristicCurationProvider: ProviderAdapter {
         sections: [StructuredSection],
         glossary: [GlossaryItem],
         callouts: [StructuredCallout],
+        templateBoxes: [StructuredTemplateBox],
         studyCards: [StudyCard],
         actionItems: [String],
         reviewQuestions: [String],
@@ -754,6 +945,8 @@ struct HeuristicCurationProvider: ProviderAdapter {
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n")
             }.joined(separator: "\n\n"))
+
+            \(templateBoxes.map { renderTemplateBox($0, language: language) }.joined(separator: "\n\n"))
 
             \(callouts.map { "[\($0.kind.rawValue)] \($0.title)\n\($0.body)" }.joined(separator: "\n\n"))
 
@@ -793,6 +986,8 @@ struct HeuristicCurationProvider: ProviderAdapter {
             .joined(separator: "\n")
         }.joined(separator: "\n\n"))
 
+        \(templateBoxes.map { renderTemplateBox($0, language: language) }.joined(separator: "\n\n"))
+
         \(callouts.map { "[\($0.kind.rawValue)] \($0.title)\n\($0.body)" }.joined(separator: "\n\n"))
 
         Glossary
@@ -807,6 +1002,42 @@ struct HeuristicCurationProvider: ProviderAdapter {
         Review Questions
         \(reviewQuestions.map { "- \($0)" }.joined(separator: "\n"))
         """
+    }
+
+    private func renderTemplateBox(_ box: StructuredTemplateBox, language: OutputLanguage) -> String {
+        let label = box.title.isEmpty ? defaultTemplateBoxLabel(for: box.kind, language: language) : box.title
+        let lines = ([box.body] + box.items.map { "- \($0)" }).filter { !$0.isEmpty }
+        return ([label] + lines).joined(separator: "\n")
+    }
+
+    private func defaultTemplateBoxLabel(for kind: StructuredTemplateBoxKind, language: OutputLanguage) -> String {
+        switch (kind, language) {
+        case (.summary, .chinese): return "总结框"
+        case (.key, .chinese): return "重点框"
+        case (.warning, .chinese): return "提醒框"
+        case (.code, .chinese): return "代码框"
+        case (.result, .chinese): return "结果框"
+        case (.exam, .chinese): return "练习框"
+        case (.explanation, .chinese): return "说明框"
+        case (.example, .chinese): return "例子框"
+        case (.summary, .english): return "Summary Box"
+        case (.key, .english): return "Key Box"
+        case (.warning, .english): return "Warning Box"
+        case (.code, .english): return "Code Box"
+        case (.result, .english): return "Result Box"
+        case (.exam, .english): return "Exam Box"
+        case (.explanation, .english): return "Explanation Box"
+        case (.example, .english): return "Example Box"
+        }
+    }
+
+    private func looksLikeCodeOrCommands(_ paragraph: String) -> Bool {
+        let lowercased = paragraph.lowercased()
+        let indicators = ["npm ", "yarn ", "pnpm ", "graph ", "forge ", "npx ", "import ", "export ", "query {", "type ", "const ", "module.exports"]
+        return indicators.contains(where: { lowercased.contains($0) })
+            || paragraph.contains("{")
+            || paragraph.contains("}")
+            || paragraph.contains("->")
     }
 }
 
@@ -1744,6 +1975,7 @@ private func repairPrompt(for draft: ProviderDraftResponse, sourceText: String) 
       "sections": [{"title": String, "body": String, "bulletPoints": [String]}],
       "glossary": [{"term": String, "definition": String}],
       "callouts": [{"kind": "keyIdea"|"note"|"warning"|"example", "title": String, "body": String}],
+      "templateBoxes": [{"kind": "summary"|"key"|"warning"|"code"|"result"|"exam"|"explanation"|"example", "title": String, "body": String, "items": [String]}],
       "studyCards": [{"question": String, "answer": String}],
       "actionItems": [String],
       "reviewQuestions": [String],
@@ -1780,7 +2012,7 @@ private func polishPrompt(for draft: ProviderDraftResponse, sourceText: String) 
     - If the existing draft language differs from the dominant source language, translate into the draft language cleanly and naturally.
     - Improve flow, wording, clarity, and tone.
     - Keep the schema exactly the same:
-      title, summary, cueQuestions, keyPoints, sections, glossary, callouts, studyCards, actionItems, reviewQuestions, renderedDocument
+      title, summary, cueQuestions, keyPoints, sections, glossary, callouts, templateBoxes, studyCards, actionItems, reviewQuestions, renderedDocument
     - Make renderedDocument read like a polished final deliverable, not a rough draft.
     - Do not add unsupported facts.
     - Do not output chain-of-thought or extra commentary.
@@ -1830,6 +2062,7 @@ private func finalLearningPrompt(for input: ProviderDraftRequest, mergedFromChun
     - sections: { "title": string, "body": string, "bulletPoints": string[] }[]
     - glossary: { "term": string, "definition": string }[]
     - callouts: { "kind": "keyIdea" | "note" | "warning" | "example", "title": string, "body": string }[]
+    - templateBoxes: { "kind": "summary" | "key" | "warning" | "code" | "result" | "exam" | "explanation" | "example", "title": string, "body": string, "items": string[] }[]
     - studyCards: { "question": string, "answer": string }[]
     - actionItems: string[]
     - reviewQuestions: string[]
@@ -1850,6 +2083,8 @@ private func finalLearningPrompt(for input: ProviderDraftRequest, mergedFromChun
     - Sections should teach the material, not just restate it; explain what, why, and how when the source supports it.
     - Use glossary only for terms that truly matter.
     - Use callouts only for grounded insights such as key ideas, warnings, or examples from the source.
+    - Use templateBoxes when the source naturally supports boxed content such as distilled takeaways, critical warnings, code/command snippets, practical result checklists, interview/self-test prompts, worked examples, or extra explanation boxes.
+    - Leave a templateBoxes kind empty unless the source clearly supports it.
     - Include 3-6 studyCards when the material is educational or technical. Each study card must have a direct answer, not just a question.
     - If the source includes quiz questions or multiple-choice questions, convert the most useful ones into studyCards with the correct answer and a short explanation in the answer.
     - Include 2-4 cue questions inspired by study-note formats when useful.
@@ -1859,7 +2094,7 @@ private func finalLearningPrompt(for input: ProviderDraftRequest, mergedFromChun
     - renderedDocument should be polished markdown that reflects the same richer structure.
 
     Template guidance:
-    \(templateGuidance(for: input.contentTemplateName, goalType: input.goalType, language: input.outputLanguage))
+    \(resolvedTemplateGuidance(for: input))
 
     Source guidance:
     \(sourceLabel)
@@ -1879,6 +2114,7 @@ private func chunkDigestPrompt(for input: ProviderDraftRequest) -> String {
     - sections: { "title": string, "body": string, "bulletPoints": string[] }[]
     - glossary: { "term": string, "definition": string }[]
     - callouts: { "kind": "keyIdea" | "note" | "warning" | "example", "title": string, "body": string }[]
+    - templateBoxes: { "kind": "summary" | "key" | "warning" | "code" | "result" | "exam" | "explanation" | "example", "title": string, "body": string, "items": string[] }[]
     - studyCards: { "question": string, "answer": string }[]
     - actionItems: string[]
     - reviewQuestions: string[]
@@ -1895,6 +2131,7 @@ private func chunkDigestPrompt(for input: ProviderDraftRequest) -> String {
     - Keep summary to 1-2 sentences.
     - Prefer 3-5 key points.
     - Prefer 1-3 sections with concise but information-dense explanations.
+    - Include templateBoxes only when the chunk clearly contains material that belongs in a boxed format such as command snippets, warnings, result checklists, or self-check prompts.
     - Include 1-3 studyCards when the chunk supports it, and every study card must have a real answer.
     - Keep cueQuestions and reviewQuestions empty unless they add clear value.
     - Leave actionItems empty unless the chunk contains explicit commands, real tasks, or follow-up steps.
@@ -1932,6 +2169,112 @@ private func learningNoteRequirements(language: OutputLanguage) -> String {
     6. Do not generate generic task lists when the source does not contain explicit tasks.
     7. Avoid repeated sections and avoid filler.
     """
+}
+
+func providerPromptTemplateGuidance(template: Template?, usedBlocks: Set<MarkdownTemplateBlock>) -> String {
+    if let template,
+       let storedPackData = template.storedPackData,
+       let pack = try? JSONDecoder().decode(TemplatePack.self, from: storedPackData) {
+        return templatePackPromptGuidance(template: template, pack: pack)
+    }
+
+    let requestedBlocks = usedBlocks
+        .map(\.rawValue)
+        .sorted()
+        .joined(separator: ", ")
+    let layoutHeadings = templateLayoutHeadings(from: template)
+    let generationHint: String
+    if let template, let parsed = try? template.markdownTemplate(fallbackGoal: template.configuredGoalType) {
+        generationHint = parsed.frontMatter.generationHint
+    } else {
+        generationHint = ""
+    }
+
+    var lines: [String] = []
+    if let template {
+        lines.append("Template name: \(template.name)")
+    }
+    if !layoutHeadings.isEmpty {
+        lines.append("Requested layout headings: \(layoutHeadings.joined(separator: ", "))")
+    }
+    if !requestedBlocks.isEmpty {
+        lines.append("Requested content blocks: \(requestedBlocks)")
+    }
+    if !generationHint.isEmpty {
+        lines.append("Generation hint: \(generationHint)")
+    }
+    return lines.joined(separator: "\n")
+}
+
+private func templatePackPromptGuidance(template: Template, pack: TemplatePack) -> String {
+    var lines: [String] = ["Template name: \(template.name)"]
+    let orderedBindings = pack.layout.blocks.compactMap { $0.fieldBinding?.trimmingCharacters(in: .whitespacesAndNewlines) }
+    if !orderedBindings.isEmpty {
+        lines.append("Pack layout order: \(orderedBindings.joined(separator: ", "))")
+    }
+
+    let boxBindings = Array(Set(orderedBindings.filter { $0.hasSuffix("_boxes") })).sorted()
+    if !boxBindings.isEmpty {
+        lines.append("Use templateBoxes to fill these box buckets when the source supports them:")
+        lines.append(contentsOf: boxBindings.map { "- \($0): \(templateBoxPromptMeaning(for: $0))" })
+        lines.append("Only include a templateBoxes item when the source clearly supports that boxed treatment.")
+    }
+
+    lines.append("Preview and export both follow the same imported pack order.")
+    return lines.joined(separator: "\n")
+}
+
+private func templateBoxPromptMeaning(for binding: String) -> String {
+    switch binding {
+    case "summary_boxes":
+        return "short boxed summaries or quick recap cards"
+    case "key_boxes":
+        return "distilled core ideas, one-sentence takeaways, or main concepts"
+    case "warning_boxes":
+        return "critical cautions, common pitfalls, constraints, or easy-to-miss facts"
+    case "code_boxes":
+        return "commands, code snippets, queries, config blocks, or pseudocode"
+    case "result_boxes":
+        return "practical outcomes, prerequisite lists, deployment checklists, or success criteria"
+    case "exam_boxes":
+        return "self-check prompts, interview questions, drills, or exercises"
+    case "explanation_boxes":
+        return "extra clarifications that deserve a boxed explainer instead of a long normal section"
+    case "example_boxes":
+        return "worked examples, concrete scenarios, or specific demonstrations"
+    default:
+        return "boxed supporting content"
+    }
+}
+
+private func resolvedTemplateGuidance(for input: ProviderDraftRequest) -> String {
+    let resolvedTemplate = input.contentTemplate ?? Template.builtinContentTemplate(
+        named: input.contentTemplateName,
+        goalType: input.goalType
+    )
+
+    if let resolvedTemplate, let parsed = try? resolvedTemplate.markdownTemplate(fallbackGoal: input.goalType) {
+        let enrichedGuidance = providerPromptTemplateGuidance(
+            template: resolvedTemplate,
+            usedBlocks: parsed.usedBlocks
+        )
+        if !enrichedGuidance.isEmpty {
+            return enrichedGuidance
+        }
+    }
+
+    return templateGuidance(for: input.contentTemplateName, goalType: input.goalType, language: input.outputLanguage)
+}
+
+private func templateLayoutHeadings(from template: Template?) -> [String] {
+    guard let template else { return [] }
+    return template.body
+        .components(separatedBy: .newlines)
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { $0.hasPrefix("#") }
+        .map {
+            $0.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)
+        }
 }
 
 private func templateGuidance(for templateName: String, goalType: GoalType, language: OutputLanguage) -> String {
@@ -2007,6 +2350,24 @@ private func uniqueCallouts(_ items: [StructuredCallout]) -> [StructuredCallout]
         let key = "\(item.kind.rawValue)||\(title.lowercased())||\(body.lowercased())"
         guard seen.insert(key).inserted else { return nil }
         return StructuredCallout(kind: item.kind, title: title, body: body)
+    }
+}
+
+private func uniqueTemplateBoxes(_ items: [StructuredTemplateBox]) -> [StructuredTemplateBox] {
+    var seen: Set<String> = []
+    return items.compactMap { item in
+        let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = item.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let boxItems = uniqueNonEmptyStrings(item.items)
+        guard !title.isEmpty || !body.isEmpty || !boxItems.isEmpty else { return nil }
+        let key = [
+            item.kind.rawValue,
+            title.lowercased(),
+            body.lowercased(),
+            boxItems.map { $0.lowercased() }.joined(separator: "|")
+        ].joined(separator: "||")
+        guard seen.insert(key).inserted else { return nil }
+        return StructuredTemplateBox(kind: item.kind, title: title, body: body, items: boxItems)
     }
 }
 

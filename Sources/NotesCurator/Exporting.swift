@@ -159,185 +159,19 @@ struct ExportCoordinator: Sendable {
     }
 
     private func markdown(for draft: DraftVersion) -> String {
-        let document = draft.structuredDoc
-        var lines = [
-            "# \(document.title)",
-            "",
-            "_\(document.exportMetadata.contentTemplateName) · \(document.outputLanguageLabel(for: draft.outputLanguage)) · \(document.exportMetadata.visualTemplateName)_",
-            "",
-            "## \(sectionLabel(.summary, language: draft.outputLanguage))",
-            document.summary,
-            "",
-        ]
-
-        appendBulletSection(
-            title: sectionLabel(.cueQuestions, language: draft.outputLanguage),
-            items: document.cueQuestions,
-            to: &lines
-        )
-        appendBulletSection(title: sectionLabel(.keyPoints, language: draft.outputLanguage), items: document.keyPoints, to: &lines)
-
-        if !document.callouts.isEmpty {
-            lines.append("## \(sectionLabel(.callouts, language: draft.outputLanguage))")
-            lines.append("")
-            for callout in document.callouts {
-                lines.append("> **\(calloutBadge(for: callout.kind)) \(callout.title)**")
-                lines.append("> \(callout.body)")
-                lines.append("")
-            }
-        }
-
-        for section in document.sections {
-            lines.append("## \(section.title)")
-            lines.append(section.body)
-            if !section.bulletPoints.isEmpty {
-                lines.append("")
-                lines.append(contentsOf: section.bulletPoints.map { "- \($0)" })
-            }
-            lines.append("")
-        }
-
-        if !document.glossary.isEmpty {
-            lines.append("## \(sectionLabel(.glossary, language: draft.outputLanguage))")
-            lines.append("")
-            lines.append(contentsOf: document.glossary.map { "- **\($0.term)**: \($0.definition)" })
-            lines.append("")
-        }
-
-        appendStudyCardSection(
-            title: sectionLabel(.studyCards, language: draft.outputLanguage),
-            cards: document.studyCards,
-            language: draft.outputLanguage,
-            to: &lines
-        )
-        appendBulletSection(title: sectionLabel(.reviewQuestions, language: draft.outputLanguage), items: document.reviewQuestions, to: &lines)
-        appendBulletSection(title: sectionLabel(.actionItems, language: draft.outputLanguage), items: document.actionItems, to: &lines)
-
-        if !document.imageSlots.isEmpty {
-            lines.append("## \(sectionLabel(.suggestedFigures, language: draft.outputLanguage))")
-            lines.append("")
-            lines.append(contentsOf: document.imageSlots.map { "- \($0.caption)" })
-            lines.append("")
-        }
-
-        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        renderedMarkdown(for: draft, surface: .export)
     }
 
     private func htmlDocument(for draft: DraftVersion) -> String {
         let document = draft.structuredDoc
-        let theme = DocumentTheme.named(document.exportMetadata.visualTemplateName)
+        let theme = documentTheme(for: draft)
         let title = escapedHTML(document.title)
-        let summary = paragraphHTML(document.summary)
         let templateName = escapedHTML(document.exportMetadata.contentTemplateName.uppercased())
         let languageLabel = escapedHTML(document.outputLanguageLabel(for: draft.outputLanguage))
         let visualTemplate = escapedHTML(document.exportMetadata.visualTemplateName)
-
-        var sections: [String] = []
-
-        if !document.cueQuestions.isEmpty {
-            sections.append(htmlListSection(
-                title: sectionLabel(.cueQuestions, language: draft.outputLanguage),
-                items: document.cueQuestions,
-                tone: theme.accentSoftHex
-            ))
-        }
-
-        if !document.keyPoints.isEmpty {
-            sections.append(htmlListSection(
-                title: sectionLabel(.keyPoints, language: draft.outputLanguage),
-                items: document.keyPoints,
-                tone: withAlphaHex(theme.accentHex, alpha: 0.08) ?? theme.accentSoftHex
-            ))
-        }
-
-        if !document.callouts.isEmpty {
-            let callouts = document.callouts.map { callout in
-                """
-                <article class="callout \(callout.kind.rawValue)">
-                  <div class="eyebrow">\(escapedHTML(calloutBadge(for: callout.kind)))</div>
-                  <h3>\(escapedHTML(callout.title))</h3>
-                  <p>\(paragraphHTML(callout.body))</p>
-                </article>
-                """
-            }.joined()
-
-            sections.append("""
-            <section class="stack">
-              <h2 class="section-heading">\(escapedHTML(sectionLabel(.callouts, language: draft.outputLanguage)))</h2>
-              <div class="callouts">\(callouts)</div>
-            </section>
-            """)
-        }
-
-        let bodySections = document.sections.enumerated().map { index, section in
-            let bullets = section.bulletPoints.isEmpty ? "" : """
-            <ul class="bullet-list">
-              \(section.bulletPoints.map { "<li>\(paragraphHTML($0))</li>" }.joined())
-            </ul>
-            """
-
-            return """
-            <article class="content-card">
-              <div class="section-title-row">
-                <span class="section-number">\(index + 1)</span>
-                <h2>\(escapedHTML(section.title))</h2>
-              </div>
-              <p>\(paragraphHTML(section.body))</p>
-              \(bullets)
-            </article>
-            """
-        }.joined()
-        sections.append(bodySections)
-
-        if !document.glossary.isEmpty {
-            let glossary = document.glossary.map { item in
-                """
-                <article class="glossary-card">
-                  <h3>\(escapedHTML(item.term))</h3>
-                  <p>\(paragraphHTML(item.definition))</p>
-                </article>
-                """
-            }.joined()
-            sections.append("""
-            <section class="stack">
-              <h2 class="section-heading">\(escapedHTML(sectionLabel(.glossary, language: draft.outputLanguage)))</h2>
-              <div class="glossary-grid">\(glossary)</div>
-            </section>
-            """)
-        }
-
-        if !document.studyCards.isEmpty {
-            let cards = document.studyCards.map { card in
-                """
-                <article class="content-card compact">
-                  <h3>\(escapedHTML(card.question))</h3>
-                  <p>\(paragraphHTML(card.answer))</p>
-                </article>
-                """
-            }.joined()
-            sections.append("""
-            <section class="stack">
-              <h2 class="section-heading">\(escapedHTML(sectionLabel(.studyCards, language: draft.outputLanguage)))</h2>
-              <div class="stack-gap">\(cards)</div>
-            </section>
-            """)
-        }
-
-        if !document.reviewQuestions.isEmpty {
-            sections.append(htmlListSection(
-                title: sectionLabel(.reviewQuestions, language: draft.outputLanguage),
-                items: document.reviewQuestions,
-                tone: withAlphaHex(theme.accentHex, alpha: 0.08) ?? theme.accentSoftHex
-            ))
-        }
-
-        if !document.actionItems.isEmpty {
-            sections.append(htmlListSection(
-                title: sectionLabel(.actionItems, language: draft.outputLanguage),
-                items: document.actionItems,
-                tone: theme.accentSoftHex
-            ))
-        }
+        let blocks = renderedBlocks(for: draft, surface: .export)
+        let bodyHTML = (try? MarkdownHTMLRenderer.render(blocks: blocks, theme: theme))
+            ?? "<p>\(paragraphHTML(renderedMarkdown(for: draft, surface: .export)))</p>"
 
         return """
         <!DOCTYPE html>
@@ -401,73 +235,37 @@ struct ExportCoordinator: Sendable {
               line-height: 1.2;
               color: var(--accent);
             }
-            h2.section-heading {
-              margin: 0 0 10px;
+            h2 {
+              margin: 26px 0 12px;
               color: var(--accent);
-              font-size: 13px;
-              letter-spacing: 0.08em;
-              text-transform: uppercase;
+              font-size: 23px;
             }
-            .summary-card, .content-card, .glossary-card, .callout {
+            h3 {
+              margin: 18px 0 10px;
+              color: var(--body);
+              font-size: 18px;
+            }
+            .markdown-body > p,
+            .markdown-body > blockquote,
+            .markdown-body > ul {
               background: var(--canvas);
               border: 1px solid color-mix(in srgb, var(--accent) 12%, white);
               border-radius: 20px;
               padding: 18px;
             }
-            .content-card {
-              padding: 20px;
-              border-radius: 22px;
+            .markdown-body > *:first-child {
+              margin-top: 0;
             }
-            .content-card.compact {
-              padding: 16px;
-              border-radius: 18px;
+            .markdown-body > blockquote {
+              border-left: 4px solid var(--accent);
+              color: var(--secondary);
             }
-            .stack {
-              margin-top: 22px;
-            }
-            .stack-gap > * + * { margin-top: 12px; }
-            .list-card {
-              padding: 16px;
-              border-radius: 18px;
-            }
-            .list-card ul, .bullet-list {
-              margin: 0;
-              padding-left: 20px;
-            }
-            .list-card li, .bullet-list li {
-              margin: 8px 0;
-            }
-            .callouts, .glossary-grid {
-              display: grid;
-              gap: 12px;
-            }
-            .glossary-grid {
-              grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            }
-            .callout.warning { background: var(--warning); border-color: #f0dcc6; }
-            .callout.example { background: var(--example); border-color: #d9eddc; }
-            .callout.keyIdea { background: color-mix(in srgb, var(--accent) 8%, white); }
-            .eyebrow {
-              color: var(--accent);
-              font-size: 12px;
-              font-weight: 700;
-              margin-bottom: 6px;
-            }
-            .section-number {
-              width: 22px;
-              height: 22px;
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              border-radius: 999px;
-              color: var(--accent);
-              background: var(--accent-soft);
-              font-size: 12px;
-              font-weight: 700;
-            }
-            p, li {
+            p, li, blockquote {
               line-height: 1.7;
               color: var(--body);
+            }
+            ul {
+              padding-left: 20px;
             }
             @media (max-width: 720px) {
               body { padding: 16px; }
@@ -483,123 +281,48 @@ struct ExportCoordinator: Sendable {
               <span class="meta-text">\(languageLabel)</span>
               <span class="meta-text">\(visualTemplate)</span>
             </div>
-            <h1>\(title)</h1>
-            <section class="summary-card">
-              <p>\(summary)</p>
-            </section>
-            \(sections.joined(separator: "\n"))
+            <div class="markdown-body">
+              \(bodyHTML)
+            </div>
           </main>
         </body>
         </html>
         """
     }
 
-    private func htmlListSection(title: String, items: [String], tone: String) -> String {
-        """
-        <section class="stack">
-          <h2 class="section-heading">\(escapedHTML(title))</h2>
-          <div class="list-card" style="background: \(tone);">
-            <ul>
-              \(items.map { "<li>\(paragraphHTML($0))</li>" }.joined())
-            </ul>
-          </div>
-        </section>
-        """
-    }
-
-    private func appendBulletSection(title: String, items: [String], to lines: inout [String]) {
-        guard !items.isEmpty else { return }
-        lines.append("## \(title)")
-        lines.append("")
-        lines.append(contentsOf: items.map { "- \($0)" })
-        lines.append("")
-    }
-
     private func plainPreview(for draft: DraftVersion) -> String {
-        let document = draft.structuredDoc
-        var chunks = [document.title, "", document.summary]
-
-        if !document.keyPoints.isEmpty {
-            chunks.append("")
-            chunks.append(sectionLabel(.keyPoints, language: draft.outputLanguage))
-            chunks.append(document.keyPoints.map { "• \($0)" }.joined(separator: "\n"))
-        }
-
-        for section in document.sections {
-            chunks.append("")
-            chunks.append(section.title)
-            chunks.append(section.body)
-            if !section.bulletPoints.isEmpty {
-                chunks.append(section.bulletPoints.map { "• \($0)" }.joined(separator: "\n"))
-            }
-        }
-
-        if !document.actionItems.isEmpty {
-            chunks.append("")
-            chunks.append(sectionLabel(.actionItems, language: draft.outputLanguage))
-            chunks.append(document.actionItems.map { "• \($0)" }.joined(separator: "\n"))
-        }
-
-        if !document.studyCards.isEmpty {
-            chunks.append("")
-            chunks.append(sectionLabel(.studyCards, language: draft.outputLanguage))
-            chunks.append(
-                document.studyCards.map { card in
-                    "• \(studyCardQuestionPrefix(for: draft.outputLanguage)) \(card.question)\n  \(studyCardAnswerPrefix(for: draft.outputLanguage)) \(card.answer)"
-                }.joined(separator: "\n")
-            )
-        }
-
-        return chunks.joined(separator: "\n")
+        MarkdownPlainTextRenderer.render(blocks: renderedBlocks(for: draft, surface: .export))
     }
 
     private func documentXML(for draft: DraftVersion) -> String {
-        let document = draft.structuredDoc
         var paragraphs: [String] = []
-        paragraphs.append(wordParagraph(document.title, style: .title))
+        let title = draft.structuredDoc.title
+        paragraphs.append(wordParagraph(title, style: .title))
         paragraphs.append(
             wordParagraph(
-                "\(document.exportMetadata.contentTemplateName) · \(document.outputLanguageLabel(for: draft.outputLanguage)) · \(document.exportMetadata.visualTemplateName)",
+                "\(draft.structuredDoc.exportMetadata.contentTemplateName) · \(draft.structuredDoc.outputLanguageLabel(for: draft.outputLanguage)) · \(draft.structuredDoc.exportMetadata.visualTemplateName)",
                 style: .meta
             )
         )
-        paragraphs.append(wordParagraph(sectionLabel(.summary, language: draft.outputLanguage), style: .heading))
-        paragraphs.append(wordParagraph(document.summary, style: .body))
-
-        appendWordSection(title: sectionLabel(.cueQuestions, language: draft.outputLanguage), items: document.cueQuestions, to: &paragraphs)
-        appendWordSection(title: sectionLabel(.keyPoints, language: draft.outputLanguage), items: document.keyPoints, to: &paragraphs)
-
-        if !document.callouts.isEmpty {
-            paragraphs.append(wordParagraph(sectionLabel(.callouts, language: draft.outputLanguage), style: .heading))
-            for callout in document.callouts {
-                paragraphs.append(wordParagraph("\(calloutBadge(for: callout.kind)) \(callout.title)", style: .subheading))
-                paragraphs.append(wordParagraph(callout.body, style: .body))
+        let blocks = renderedBlocks(for: draft, surface: .export)
+        for block in blocks {
+            switch block.kind {
+            case .heading1:
+                if block.text != title {
+                    paragraphs.append(wordParagraph(block.text, style: .title))
+                }
+            case .heading2:
+                paragraphs.append(wordParagraph(block.text, style: .heading))
+            case .heading3:
+                paragraphs.append(wordParagraph(block.text, style: .subheading))
+            case .paragraph, .quote:
+                paragraphs.append(wordParagraph(block.text, style: .body))
+            case .list:
+                for item in block.items {
+                    paragraphs.append(wordParagraph("• \(item)", style: .bullet))
+                }
             }
         }
-
-        for section in document.sections {
-            paragraphs.append(wordParagraph(section.title, style: .heading))
-            paragraphs.append(wordParagraph(section.body, style: .body))
-            for bullet in section.bulletPoints {
-                paragraphs.append(wordParagraph("• \(bullet)", style: .bullet))
-            }
-        }
-
-        if !document.glossary.isEmpty {
-            paragraphs.append(wordParagraph(sectionLabel(.glossary, language: draft.outputLanguage), style: .heading))
-            for entry in document.glossary {
-                paragraphs.append(wordParagraph("\(entry.term): \(entry.definition)", style: .body))
-            }
-        }
-
-        appendStudyCardWordSection(
-            title: sectionLabel(.studyCards, language: draft.outputLanguage),
-            cards: document.studyCards,
-            language: draft.outputLanguage,
-            to: &paragraphs
-        )
-        appendWordSection(title: sectionLabel(.reviewQuestions, language: draft.outputLanguage), items: document.reviewQuestions, to: &paragraphs)
-        appendWordSection(title: sectionLabel(.actionItems, language: draft.outputLanguage), items: document.actionItems, to: &paragraphs)
 
         return """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -609,32 +332,6 @@ struct ExportCoordinator: Sendable {
           </w:body>
         </w:document>
         """
-    }
-
-    private func appendWordSection(title: String, items: [String], to paragraphs: inout [String]) {
-        guard !items.isEmpty else { return }
-        paragraphs.append(wordParagraph(title, style: .heading))
-        for item in items {
-            paragraphs.append(wordParagraph("• \(item)", style: .bullet))
-        }
-    }
-
-    private func appendStudyCardWordSection(
-        title: String,
-        cards: [StudyCard],
-        language: OutputLanguage,
-        to paragraphs: inout [String]
-    ) {
-        guard !cards.isEmpty else { return }
-        paragraphs.append(wordParagraph(title, style: .heading))
-        for card in cards {
-            paragraphs.append(
-                wordParagraph(
-                    "• \(studyCardQuestionPrefix(for: language)) \(card.question)\n\(studyCardAnswerPrefix(for: language)) \(card.answer)",
-                    style: .bullet
-                )
-            )
-        }
     }
 
     private func wordParagraph(_ text: String, style: WordParagraphStyle) -> String {
@@ -681,15 +378,6 @@ struct ExportCoordinator: Sendable {
         """
     }
 
-    private func calloutBadge(for kind: StructuredCalloutKind) -> String {
-        switch kind {
-        case .keyIdea: return "KEY IDEA"
-        case .note: return "NOTE"
-        case .warning: return "WATCH OUT"
-        case .example: return "EXAMPLE"
-        }
-    }
-
     private func sectionLabel(_ section: ExportSectionLabel, language: OutputLanguage) -> String {
         switch (section, language) {
         case (.summary, .chinese): return "摘要"
@@ -713,34 +401,40 @@ struct ExportCoordinator: Sendable {
         }
     }
 
-    private func appendStudyCardSection(
-        title: String,
-        cards: [StudyCard],
-        language: OutputLanguage,
-        to lines: inout [String]
-    ) {
-        guard !cards.isEmpty else { return }
-        lines.append("## \(title)")
-        lines.append("")
-        lines.append(contentsOf: cards.map {
-            "- \(studyCardQuestionPrefix(for: language)) \($0.question)\n  \(studyCardAnswerPrefix(for: language)) \($0.answer)"
-        })
-        lines.append("")
-    }
-
-    private func studyCardQuestionPrefix(for language: OutputLanguage) -> String {
-        language == .chinese ? "问：" : "Q:"
-    }
-
-    private func studyCardAnswerPrefix(for language: OutputLanguage) -> String {
-        language == .chinese ? "答：" : "A:"
-    }
-
     private func fileStem(for draft: DraftVersion) -> String {
         draft.structuredDoc.title
             .lowercased()
             .replacingOccurrences(of: " ", with: "-")
             .replacingOccurrences(of: "/", with: "-")
+    }
+
+    private func renderedMarkdown(for draft: DraftVersion, surface: RenderSurface) -> String {
+        (try? draft.renderedMarkdown(for: surface)) ?? sourceMarkdown(for: draft)
+    }
+
+    private func renderedBlocks(for draft: DraftVersion, surface: RenderSurface) -> [MarkdownBlock] {
+        (try? MarkdownDocument.parse(renderedMarkdown(for: draft, surface: surface)).blocks) ?? [
+            MarkdownBlock(kind: .paragraph, text: renderedMarkdown(for: draft, surface: surface), items: [])
+        ]
+    }
+
+    private func sourceMarkdown(for draft: DraftVersion) -> String {
+        draft.editorDocument.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func documentTheme(for draft: DraftVersion) -> DocumentTheme {
+        guard let pack = try? draft.resolvedTemplatePackForRendering() else {
+            return DocumentTheme.named(draft.structuredDoc.exportMetadata.visualTemplateName)
+        }
+
+        return DocumentTheme(
+            name: draft.structuredDoc.exportMetadata.visualTemplateName,
+            accentHex: pack.style.accentHex,
+            accentSoftHex: pack.style.surfaceHex,
+            surfaceHex: pack.style.surfaceHex,
+            borderHex: pack.style.borderHex,
+            secondaryHex: pack.style.secondaryHex
+        )
     }
 
     private func escapedXML(_ value: String) -> String {

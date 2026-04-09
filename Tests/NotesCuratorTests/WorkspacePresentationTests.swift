@@ -1,7 +1,17 @@
+import Foundation
 import Testing
 @testable import NotesCurator
 
 struct WorkspacePresentationTests {
+    @Test
+    func templateLibraryExposesLatexImportEntryAndReviewActions() {
+        let actions = TemplateLibraryPresentation.availableActions(hasPendingImport: true)
+
+        #expect(actions.contains("Import LaTeX Template"))
+        #expect(actions.contains("Use Template"))
+        #expect(actions.contains("Adjust Type"))
+    }
+
     @Test
     func homeSurfacePrefersWorkspacesQuickActionsAndCurrentWork() {
         let sections = HomeSurfacePolicy.defaultSections(hasSavedSession: true)
@@ -119,5 +129,35 @@ struct WorkspacePresentationTests {
     func workspaceCustomizationSubtitleAllowsExplicitEditsIncludingBlankValues() {
         #expect(WorkspaceCustomizationPresentation.resolvedSubtitle("  New purpose  ") == "New purpose")
         #expect(WorkspaceCustomizationPresentation.resolvedSubtitle("   ") == "")
+    }
+
+    @Test
+    func workspaceCustomizationSubtitleEditorKeepsChromeOutOfTheHitTarget() {
+        #expect(WorkspaceCustomizationPresentation.subtitleBorderAllowsHitTesting == false)
+        #expect(WorkspaceCustomizationPresentation.subtitleEditorMinHeight >= 100)
+        #expect(WorkspaceCustomizationPresentation.usesNativeTextViewForSubtitleEditing == true)
+    }
+
+    @Test
+    func workspaceCustomizationLetsSubtitleTakeFocusAfterInitialTitleFocus() {
+        #expect(WorkspaceCustomizationPresentation.initialFocusedField == .title)
+        #expect(
+            WorkspaceCustomizationPresentation.focusTarget(afterSelecting: .subtitle) == .subtitle
+        )
+    }
+
+    @Test
+    func workspaceDetailPrefersLiveWorkspaceValuesOverFallbackSnapshot() {
+        let workspaceID = UUID()
+        let fallback = Workspace(id: workspaceID, name: "Ideas", subtitle: "Old subtitle", cover: .ocean)
+        let updated = Workspace(id: workspaceID, name: "Ideas", subtitle: "Updated subtitle", cover: .ocean)
+
+        let resolved = WorkspaceDetailPresentation.liveWorkspace(
+            workspaceID: workspaceID,
+            from: [updated],
+            fallback: fallback
+        )
+
+        #expect(resolved.subtitle == "Updated subtitle")
     }
 }
