@@ -171,7 +171,6 @@ private struct AppSidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            branding
             newNoteButton
             navigationLinks
 
@@ -179,8 +178,16 @@ private struct AppSidebar: View {
 
             activeWorkspaceCard
         }
-        .padding(24)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
+        .padding(.top, 20)
         .frame(minWidth: 260, maxWidth: 280, maxHeight: .infinity, alignment: .topLeading)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            branding
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+                .padding(.bottom, 20)
+        }
         .background(
             LinearGradient(
                 colors: [Color.white.opacity(0.95), Color(red: 0.93, green: 0.95, blue: 0.99)],
@@ -203,7 +210,6 @@ private struct AppSidebar: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.top, 24)
     }
 
     private var newNoteButton: some View {

@@ -634,6 +634,56 @@ struct ProcessingAndExportTests {
     }
 
     @Test
+    @MainActor
+    func pdfExportPaginatesLongStyledPreview() throws {
+        let importedTemplate = Template.packBacked(
+            TemplatePackDefaults.pack(for: .technicalNote, named: "PDF Pagination Template"),
+            scope: .user
+        )
+        let longParagraph = String(
+            repeating: "这是一段为了测试 PDF 分页而重复的长内容，用来确保导出时会跨过单页高度并保持当前预览样式。 ",
+            count: 12
+        )
+
+        let draft = DraftVersion(
+            workspaceItemId: UUID(),
+            goalType: .structuredNotes,
+            outputLanguage: .chinese,
+            editorDocument: "",
+            structuredDoc: .fixture(
+                title: "长文分页测试",
+                summary: "验证 PDF 导出是否会按当前预览分页。",
+                sections: (0..<48).map { index in
+                    StructuredSection(
+                        title: "Section \(index + 1)",
+                        body: longParagraph
+                    )
+                },
+                exportMetadata: ExportMetadata(
+                    contentTemplateID: importedTemplate.id,
+                    contentTemplateName: importedTemplate.name,
+                    contentTemplatePackData: importedTemplate.storedPackData,
+                    visualTemplateName: "Oceanic Blue",
+                    preferredFormat: .pdf
+                )
+            ),
+            sourceRefs: [],
+            imageSuggestions: []
+        )
+
+        let exporter = ExportCoordinator()
+        let outputDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+
+        let pdfURL = try exporter.export(draft: draft, format: .pdf, to: outputDirectory)
+        let pdfDocument = try #require(PDFDocument(url: pdfURL))
+
+        #expect(pdfDocument.pageCount > 1)
+        #expect(pdfDocument.page(at: 0)?.bounds(for: .mediaBox).width == 794)
+        #expect(pdfDocument.page(at: 0)?.bounds(for: .mediaBox).height == 1123)
+    }
+
+    @Test
     func providerPromptIncludesGenerationHintAndRequestedBlocks() {
         let template = Template.builtinContentTemplate(named: "Action Items", goalType: .actionItems)
         let guidance = providerPromptTemplateGuidance(
