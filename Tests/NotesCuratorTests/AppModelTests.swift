@@ -21,7 +21,6 @@ struct AppModelTests {
         let studyGuide = try #require(model.contentTemplates.first(where: { $0.name == "Study Guide" }))
         let deepDive = try #require(model.contentTemplates.first(where: { $0.name == "Technical Deep Dive" }))
         let formal = try #require(model.contentTemplates.first(where: { $0.name == "Formal Document" }))
-        let action = try #require(model.contentTemplates.first(where: { $0.name == "Action Items" }))
 
         #expect(summary.storedPackData != nil)
         #expect(structured.storedPackData != nil)
@@ -29,13 +28,15 @@ struct AppModelTests {
         #expect(studyGuide.storedPackData != nil)
         #expect(deepDive.storedPackData != nil)
         #expect(formal.storedPackData != nil)
+        #expect(summary.storedLatexSource?.contains("\\documentclass") == true)
+        #expect(formal.storedLatexSource?.contains("% notescurator.block:") == true)
         #expect(summary.body.isEmpty)
         #expect(structured.body.isEmpty)
         #expect(lecture.body.isEmpty)
         #expect(studyGuide.body.isEmpty)
         #expect(deepDive.body.isEmpty)
         #expect(formal.body.isEmpty)
-        #expect(action.body.contains("Next Steps"))
+        #expect(model.contentTemplates.contains(where: { $0.name == "Action Items" }) == false)
     }
 
     @Test
@@ -49,15 +50,15 @@ struct AppModelTests {
         let model = NotesCuratorAppModel(repository: repository, pipeline: pipeline)
         try await model.load()
 
-        let systemTemplate = try #require(model.contentTemplates.first(where: { $0.name == "Action Items" }))
+        let systemTemplate = try #require(model.contentTemplates.first(where: { $0.name == "Structured Notes" }))
         let override = Template(
             kind: .content,
             scope: .user,
             name: systemTemplate.name,
-            subtitle: "Customized execution-first structure",
+            subtitle: "Customized balanced structure",
             templateDescription: "Keeps the same preset name but uses a custom markdown body.",
             format: .markdownTemplate,
-            body: systemTemplate.body.replacingOccurrences(of: "## Next Steps", with: "## Priority Actions"),
+            body: Template.starterContentTemplate().body.replacingOccurrences(of: "## Notes", with: "## Custom Notes"),
             config: systemTemplate.config
         )
 
@@ -128,6 +129,7 @@ struct AppModelTests {
         let saved = try await model.savePendingTemplateImport()
 
         #expect(saved?.scope == .user)
+        #expect(saved?.storedLatexSource == SampleLatexSources.technicalNote)
         #expect(model.pendingTemplateImportReview == nil)
         #expect(model.contentTemplates.contains(where: { $0.name == saved?.name }))
     }
@@ -278,13 +280,13 @@ struct AppModelTests {
     @Test
     func regenerateCurrentDraftUsesPersistedGenerationSourceText() async throws {
         let model = try await loadedModelWithReadyDraft()
-        let actionItems = try #require(model.contentTemplates.first(where: { $0.name == "Action Items" }))
+        let formalDocument = try #require(model.contentTemplates.first(where: { $0.name == "Formal Document" }))
 
-        try await model.updateSelectedContentTemplate(actionItems.id)
+        try await model.updateSelectedContentTemplate(formalDocument.id)
         try await model.regenerateCurrentDraftWithSelectedTemplate()
 
-        #expect(model.currentVersion?.editorDocument.contains("Next Steps") == true)
-        #expect(model.currentVersion?.structuredDoc.exportMetadata.renderedContentTemplateID == actionItems.id)
+        #expect(model.currentVersion?.editorDocument.isEmpty == false)
+        #expect(model.currentVersion?.structuredDoc.exportMetadata.renderedContentTemplateID == formalDocument.id)
         #expect(model.currentVersion?.generationSourceText != nil)
     }
 

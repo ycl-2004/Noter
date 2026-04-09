@@ -61,6 +61,7 @@ struct TemplatePack: Codable, Equatable, Sendable {
 }
 
 struct TemplateImportReview: Equatable, Sendable {
+    var source: String
     var fingerprint: SourceFingerprint
     var inferredArchetype: TemplateArchetype
     var templatePack: TemplatePack
@@ -349,9 +350,10 @@ extension Template {
         _ pack: TemplatePack,
         scope: TemplateScope,
         goalType: GoalType? = nil,
-        templateDescription: String? = nil
+        templateDescription: String? = nil,
+        latexSource: String? = nil
     ) -> Template {
-        Template(
+        var template = Template(
             kind: .content,
             scope: scope,
             name: pack.identity.name,
@@ -360,8 +362,13 @@ extension Template {
             format: .markdownTemplate,
             body: "",
             config: ["template_pack": "v1", "goal": (goalType ?? pack.legacyGoalType).rawValue],
-            storedPackData: try? JSONEncoder().encode(pack)
+            storedPackData: try? JSONEncoder().encode(pack),
+            storedLatexSource: latexSource
         )
+        if template.storedLatexSource?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+            template.storedLatexSource = TemplatePackLatexCodec.emit(template: template, pack: pack)
+        }
+        return template
     }
 
     func editableCopy(scope: TemplateScope) -> Template {
@@ -374,7 +381,8 @@ extension Template {
             format: format,
             body: body,
             config: config,
-            storedPackData: storedPackData
+            storedPackData: storedPackData,
+            storedLatexSource: storedLatexSource
         )
     }
 
@@ -395,7 +403,31 @@ extension Template {
             format: .markdownTemplate,
             body: body,
             config: config,
-            storedPackData: storedPackData
+            storedPackData: storedPackData,
+            storedLatexSource: storedLatexSource
+        )
+    }
+
+    func updatedForLatexAuthoring(
+        name: String,
+        subtitle: String,
+        templateDescription: String,
+        latexSource: String,
+        pack: TemplatePack,
+        goalType: GoalType
+    ) -> Template {
+        Template(
+            id: id,
+            kind: .content,
+            scope: scope,
+            name: name,
+            subtitle: subtitle,
+            templateDescription: templateDescription,
+            format: .markdownTemplate,
+            body: "",
+            config: ["template_pack": "v1", "goal": goalType.rawValue],
+            storedPackData: try? JSONEncoder().encode(pack),
+            storedLatexSource: latexSource
         )
     }
 
@@ -409,7 +441,8 @@ extension Template {
             format: format,
             body: body,
             config: config,
-            storedPackData: storedPackData
+            storedPackData: storedPackData,
+            storedLatexSource: storedLatexSource
         )
     }
 
@@ -420,6 +453,9 @@ extension Template {
         copy.config["goal"] = pack.legacyGoalType.rawValue
         if copy.subtitle.isEmpty {
             copy.subtitle = pack.identity.description
+        }
+        if copy.storedLatexSource?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+            copy.storedLatexSource = TemplatePackLatexCodec.emit(template: copy, pack: pack)
         }
         return copy
     }
@@ -432,6 +468,18 @@ extension Template {
             return pack
         }
         return try LegacyTemplatePackAdapter.makePack(from: self)
+    }
+
+    var isPackBacked: Bool {
+        storedPackData != nil || config["template_pack"] == "v1"
+    }
+
+    var latexAuthoringSource: String? {
+        if let storedLatexSource, storedLatexSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            return storedLatexSource
+        }
+        guard isPackBacked, let pack = try? templatePack() else { return nil }
+        return TemplatePackLatexCodec.emit(template: self, pack: pack)
     }
 }
 

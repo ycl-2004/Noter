@@ -90,6 +90,7 @@ enum LatexTemplateImporter {
         templatePack.importedPreview = preview
 
         return TemplateImportReview(
+            source: normalized,
             fingerprint: fingerprint,
             inferredArchetype: archetype,
             templatePack: templatePack
@@ -743,6 +744,7 @@ enum LatexTemplateImporter {
 extension TemplateImportReview {
     func rebuild(for archetype: TemplateArchetype) -> TemplateImportReview {
         TemplateImportReview(
+            source: source,
             fingerprint: fingerprint,
             inferredArchetype: archetype,
             templatePack: TemplatePackDefaults.importedPack(

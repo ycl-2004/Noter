@@ -591,7 +591,23 @@ final class NotesCuratorAppModel {
     @discardableResult
     func savePendingTemplateImport(as scope: TemplateScope = .user) async throws -> Template? {
         guard let review = pendingTemplateImportReview else { return nil }
-        let template = Template.packBacked(editingTemplatePack ?? review.templatePack, scope: scope)
+        let pack = editingTemplatePack ?? review.templatePack
+        let goalType: GoalType
+        switch pack.archetype {
+        case .meetingBrief:
+            goalType = .actionItems
+        case .formalBrief:
+            goalType = .formalDocument
+        case .technicalNote:
+            goalType = .structuredNotes
+        }
+        let template = Template.packBacked(
+            pack,
+            scope: scope,
+            goalType: goalType,
+            templateDescription: pack.identity.description.isEmpty ? "Imported from LaTeX" : pack.identity.description,
+            latexSource: review.source
+        )
         try await saveTemplate(template)
         pendingTemplateImportReview = nil
         editingTemplatePack = nil
@@ -1124,7 +1140,8 @@ final class NotesCuratorAppModel {
                     format: template.format,
                     body: template.body,
                     config: template.config,
-                    storedPackData: template.storedPackData
+                    storedPackData: template.storedPackData,
+                    storedLatexSource: template.storedLatexSource
                 )
                 try await repository.save(template: refreshed)
                 templates[index] = refreshed
@@ -1133,6 +1150,18 @@ final class NotesCuratorAppModel {
                 templates.append(template)
             }
         }
+
+        let supportedSystemTemplateKeys = Set(Template.defaultTemplates.map { "\($0.kind.rawValue):\($0.name.lowercased())" })
+        let deprecatedSystemTemplates = templates.filter { template in
+            template.scope == .system &&
+            supportedSystemTemplateKeys.contains("\(template.kind.rawValue):\(template.name.lowercased())") == false
+        }
+
+        for template in deprecatedSystemTemplates {
+            try await repository.delete(templateID: template.id)
+        }
+        let deprecatedIDs = Set(deprecatedSystemTemplates.map(\.id))
+        templates.removeAll { deprecatedIDs.contains($0.id) }
         sortTemplates()
     }
 

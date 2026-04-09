@@ -435,7 +435,6 @@ extension Template {
             studyGuideTemplate,
             technicalDeepDiveTemplate,
             formalDocumentTemplate,
-            actionItemsTemplate,
         ]
     }
 
@@ -478,7 +477,7 @@ extension Template {
         case .formalDocument:
             return formalDocumentTemplate.renamed(to: name)
         case .actionItems:
-            return actionItemsTemplate.renamed(to: name)
+            return actionItemsFallbackTemplate.renamed(to: name)
         case .structuredNotes, .none:
             return structuredNotesTemplate.renamed(to: name)
         }
@@ -869,52 +868,15 @@ extension Template {
         ]
     )
 
-    fileprivate static let actionItemsTemplate = Template(
-        kind: .content,
+    fileprivate static let actionItemsFallbackTemplate = Template.packBacked(
+        TemplatePackDefaults.pack(
+            for: .meetingBrief,
+            named: "Action Items",
+            description: "Task-first structure"
+        ),
         scope: .system,
-        name: "Action Items",
-        subtitle: "Task-first structure",
-        templateDescription: "Surfaces execution work first, then preserves the supporting context underneath.",
-        format: .markdownTemplate,
-        body: """
-        ---
-        goal: actionItems
-        generation_hint: |
-          Lead with the next steps, owners, and deadlines before supporting detail.
-        sample_data: action_plan
-        ---
-        # {{title}}
-
-        > {{summary}}
-
-        {{#if actionItems}}
-        ## Next Steps
-        {{#each actionItems}}
-        - {{item}}
-        {{/each}}
-        {{/if}}
-
-        {{#if keyPoints}}
-        ## Decision Highlights
-        {{#each keyPoints}}
-        - {{item}}
-        {{/each}}
-        {{/if}}
-
-        {{#if sections}}
-        ## Supporting Context
-        {{#each sections}}
-        ### {{title}}
-        {{body}}
-
-        {{/each}}
-        {{/if}}
-        """,
-        config: [
-            "goal": GoalType.actionItems.rawValue,
-            "purpose": "Turn discussion into trackable follow-ups with clear next steps, owners, and deadlines.",
-            "completeness": "Execution-focused completeness; background detail is compressed behind what happens next."
-        ]
+        goalType: .actionItems,
+        templateDescription: "Execution-first fallback for older action-oriented drafts."
     )
 }
 

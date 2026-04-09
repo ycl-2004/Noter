@@ -754,6 +754,7 @@ struct Template: Identifiable, Codable, Equatable, Sendable {
     var body: String
     var config: [String: String]
     var storedPackData: Data?
+    var storedLatexSource: String?
 
     init(
         id: UUID = UUID(),
@@ -765,7 +766,8 @@ struct Template: Identifiable, Codable, Equatable, Sendable {
         format: TemplateFormat = .legacyConfig,
         body: String = "",
         config: [String: String],
-        storedPackData: Data? = nil
+        storedPackData: Data? = nil,
+        storedLatexSource: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -777,6 +779,7 @@ struct Template: Identifiable, Codable, Equatable, Sendable {
         self.body = body
         self.config = config
         self.storedPackData = storedPackData
+        self.storedLatexSource = storedLatexSource
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -790,6 +793,7 @@ struct Template: Identifiable, Codable, Equatable, Sendable {
         case body
         case config
         case storedPackData
+        case storedLatexSource
     }
 
     init(from decoder: any Decoder) throws {
@@ -804,6 +808,7 @@ struct Template: Identifiable, Codable, Equatable, Sendable {
         body = try container.decodeIfPresent(String.self, forKey: .body) ?? ""
         config = try container.decodeIfPresent([String: String].self, forKey: .config) ?? [:]
         storedPackData = try container.decodeIfPresent(Data.self, forKey: .storedPackData)
+        storedLatexSource = try container.decodeIfPresent(String.self, forKey: .storedLatexSource)
     }
 }
 

@@ -105,7 +105,7 @@ struct ProcessingAndExportTests {
         )
 
         #expect(result.editorDocument != "provider freeform markdown that should be ignored")
-        #expect(result.editorDocument.contains("Next Steps"))
+        #expect(result.editorDocument.contains("## Action Items"))
     }
 
     @Test
@@ -692,8 +692,8 @@ struct ProcessingAndExportTests {
             usedBlocks: [.actionItems, .sections]
         )
 
-        #expect(guidance.contains("Next Steps"))
-        #expect(guidance.contains("actionItems"))
+        #expect(guidance.contains("Pack layout order: overview, action_items"))
+        #expect(guidance.contains("Template name: Action Items"))
     }
 
     @Test

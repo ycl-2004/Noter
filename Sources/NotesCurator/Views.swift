@@ -171,6 +171,7 @@ private struct AppSidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
+            branding
             newNoteButton
             navigationLinks
 
@@ -179,15 +180,9 @@ private struct AppSidebar: View {
             activeWorkspaceCard
         }
         .padding(.horizontal, 24)
+        .padding(.top, 24)
         .padding(.bottom, 24)
-        .padding(.top, 20)
         .frame(minWidth: 260, maxWidth: 280, maxHeight: .infinity, alignment: .topLeading)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            branding
-                .padding(.horizontal, 24)
-                .padding(.top, 24)
-                .padding(.bottom, 20)
-        }
         .background(
             LinearGradient(
                 colors: [Color.white.opacity(0.95), Color(red: 0.93, green: 0.95, blue: 0.99)],
@@ -1037,17 +1032,19 @@ private struct WorkspaceFlowContainer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            FlowStageStrip(currentFlow: flow) { selectedStage in
-                guard let destination = FocusCanvasStageNavigation.destination(for: selectedStage, from: flow) else {
-                    return
-                }
-                switch destination {
-                case .editing:
-                    model.goBackToEditing()
-                case .preview:
-                    model.showPreview()
-                case .intake, .processing, .export:
-                    break
+            if flow != .editing {
+                FlowStageStrip(currentFlow: flow) { selectedStage in
+                    guard let destination = FocusCanvasStageNavigation.destination(for: selectedStage, from: flow) else {
+                        return
+                    }
+                    switch destination {
+                    case .editing:
+                        model.goBackToEditing()
+                    case .preview:
+                        model.showPreview()
+                    case .intake, .processing, .export:
+                        break
+                    }
                 }
             }
 
@@ -1544,106 +1541,144 @@ private struct EditDocumentView: View {
 
     @Bindable var model: NotesCuratorAppModel
     @State private var editorText = ""
-    @State private var showSources = false
     @State private var showRefinedComparison = false
     @State private var selectedContentTemplateID: UUID?
     @State private var showRegenerateConfirmation = false
+    @State private var showsSupportPanel = false
+    @State private var selectedSupportPanelTab: EditSupportPanelTab = .suggestions
     @State private var autosaveTask: Task<Void, Never>?
     @State private var draftSaveState: DraftSaveState = .idle
     @State private var lastSavedAt: Date?
     var fullHeight = false
 
     private var editorPanelHeight: CGFloat {
-        fullHeight ? 620 : 520
+        fullHeight ? 700 : 560
     }
 
     var body: some View {
         if let version = model.currentVersion {
-            ResponsiveSplitLayout(
-                leadingMinWidth: 960,
-                trailingMinWidth: 320,
-                trailingFixedWidth: 320
-            ) {
-                VStack(alignment: .leading, spacing: 16) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .top, spacing: 16) {
-                            SectionTitle(title: "Edit", subtitle: "Refine the current note here, then move into review when the structure feels right.")
-                            Spacer()
-                            editorActions
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .center, spacing: 16) {
+                    FlowStageStrip(currentFlow: .editing) { selectedStage in
+                        guard let destination = FocusCanvasStageNavigation.destination(for: selectedStage, from: .editing) else {
+                            return
                         }
-                        VStack(alignment: .leading, spacing: 16) {
-                            SectionTitle(title: "Edit", subtitle: "Refine the current note here, then move into review when the structure feels right.")
-                            editorActions
+                        switch destination {
+                        case .preview:
+                            model.showPreview()
+                        case .editing, .intake, .processing, .export:
+                            break
                         }
                     }
 
-                    HStack(spacing: 10) {
-                        InfoPill(title: "Words", value: "\(wordCount(for: editorText))")
-                        InfoPill(title: "Images", value: "\(version.imageSuggestions.filter(\.isSelected).count) selected")
-                        if let item = model.selectedDraftItem, item.refinementStatus != .none {
-                            InfoPill(title: "Refinement", value: refinementLabel(for: item.refinementStatus))
+                    Spacer(minLength: 16)
+
+                    HStack(spacing: 8) {
+                        if showsSupportPanel {
+                            Picker("Support Panel", selection: $selectedSupportPanelTab) {
+                                ForEach(EditSupportPanelTab.allCases) { tab in
+                                    Text(tab.title).tag(tab)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(width: 220)
                         }
-                    }
 
-                    if let item = model.selectedDraftItem, item.refinementStatus != .none {
-                        refinementBanner(for: item)
-                    }
-
-                    templateControls(for: version)
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Document")
-                            .font(.headline)
-
-                        KeyboardFriendlyTextEditor(text: $editorText) {
-                            commitEditorChanges()
-                        }
-                        .padding(20)
-                        .frame(height: editorPanelHeight)
-                        .background(Color.white.opacity(0.96))
-                        .clipShape(RoundedRectangle(cornerRadius: 28))
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .onAppear {
-                        editorText = version.editorDocument
-                        selectedContentTemplateID = resolvedSelectedTemplateID(for: version)
-                        lastSavedAt = model.selectedDraftItem?.lastEditedAt ?? version.createdAt
-                        draftSaveState = .saved
-                    }
-                    .onChange(of: version.id) { _, _ in
-                        if let currentVersion = model.currentVersion {
-                            editorText = currentVersion.editorDocument
-                            selectedContentTemplateID = resolvedSelectedTemplateID(for: currentVersion)
-                            lastSavedAt = model.selectedDraftItem?.lastEditedAt ?? currentVersion.createdAt
-                            draftSaveState = .saved
-                        }
-                    }
-                    .onChange(of: version.structuredDoc.exportMetadata.contentTemplateID) { _, _ in
-                        selectedContentTemplateID = resolvedSelectedTemplateID(for: version)
-                    }
-                    .onChange(of: editorText) { _, newValue in
-                        scheduleAutosaveIfNeeded(for: newValue)
-                    }
-                    .onDisappear {
-                        autosaveTask?.cancel()
-                        autosaveTask = nil
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: fullHeight ? .infinity : nil, alignment: .topLeading)
-            } trailing: {
-                EditInspectorPanel(
-                    version: version,
-                    showSources: $showSources,
-                    onInsertImage: { imageID in
-                        runModelTask(model) {
-                            try await model.insertImageSuggestion(imageID)
-                            if let refreshed = model.currentVersion?.editorDocument {
-                                editorText = refreshed
+                        Button(showsSupportPanel ? "Hide Tools" : "Show Tools") {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                showsSupportPanel.toggle()
                             }
                         }
+                        .buttonStyle(.bordered)
                     }
-                )
+                }
+
+                if showsSupportPanel {
+                    EditSupportPanel(
+                        version: version,
+                        selectedTab: $selectedSupportPanelTab,
+                        onInsertImage: { imageID in
+                            runModelTask(model) {
+                                try await model.insertImageSuggestion(imageID)
+                                if let refreshed = model.currentVersion?.editorDocument {
+                                    editorText = refreshed
+                                }
+                            }
+                        }
+                    )
+                    .transition(AnyTransition.move(edge: .top).combined(with: .opacity))
+                }
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(alignment: .top, spacing: 16) {
+                                SectionTitle(title: "Edit", subtitle: "Refine the current note here, then move into review when the structure feels right.")
+                                Spacer()
+                                editorActions
+                            }
+                            VStack(alignment: .leading, spacing: 16) {
+                                SectionTitle(title: "Edit", subtitle: "Refine the current note here, then move into review when the structure feels right.")
+                                editorActions
+                            }
+                        }
+
+                        HStack(spacing: 10) {
+                            InfoPill(title: "Words", value: "\(wordCount(for: editorText))")
+                            InfoPill(title: "Images", value: "\(version.imageSuggestions.filter(\.isSelected).count) selected")
+                            if let item = model.selectedDraftItem, item.refinementStatus != .none {
+                                InfoPill(title: "Refinement", value: refinementLabel(for: item.refinementStatus))
+                            }
+                        }
+
+                        if let item = model.selectedDraftItem, item.refinementStatus != .none {
+                            refinementBanner(for: item)
+                        }
+
+                        templateControls(for: version)
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Document")
+                                .font(.headline)
+
+                            KeyboardFriendlyTextEditor(text: $editorText) {
+                                commitEditorChanges()
+                            }
+                            .padding(20)
+                            .frame(height: editorPanelHeight)
+                            .background(Color.white.opacity(0.96))
+                            .clipShape(RoundedRectangle(cornerRadius: 28))
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .onAppear {
+                            editorText = version.editorDocument
+                            selectedContentTemplateID = resolvedSelectedTemplateID(for: version)
+                            lastSavedAt = model.selectedDraftItem?.lastEditedAt ?? version.createdAt
+                            draftSaveState = .saved
+                        }
+                        .onChange(of: version.id) { _, _ in
+                            if let currentVersion = model.currentVersion {
+                                editorText = currentVersion.editorDocument
+                                selectedContentTemplateID = resolvedSelectedTemplateID(for: currentVersion)
+                                lastSavedAt = model.selectedDraftItem?.lastEditedAt ?? currentVersion.createdAt
+                                draftSaveState = .saved
+                            }
+                        }
+                        .onChange(of: version.structuredDoc.exportMetadata.contentTemplateID) { _, _ in
+                            selectedContentTemplateID = resolvedSelectedTemplateID(for: version)
+                        }
+                        .onChange(of: editorText) { _, newValue in
+                            scheduleAutosaveIfNeeded(for: newValue)
+                        }
+                        .onDisappear {
+                            autosaveTask?.cancel()
+                            autosaveTask = nil
+                        }
+                    }
+                    .padding(.bottom, 28)
+                }
+                .frame(maxWidth: .infinity, maxHeight: fullHeight ? .infinity : nil, alignment: .topLeading)
             }
             .sheet(isPresented: $showRefinedComparison) {
                 if let currentVersion = model.currentVersion,
@@ -1992,40 +2027,65 @@ private struct EditDocumentView: View {
     }
 }
 
-private struct EditInspectorPanel: View {
+private struct EditSupportPanel: View {
     let version: DraftVersion
-    @Binding var showSources: Bool
+    @Binding var selectedTab: EditSupportPanelTab
     let onInsertImage: (UUID) -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
+            switch selectedTab {
+            case .suggestions:
                 InspectorSuggestionsCard(keyPoints: version.structuredDoc.keyPoints)
                     .equatable()
-
+            case .images:
                 InspectorImagesCard(
                     images: version.imageSuggestions,
                     onInsertImage: onInsertImage
                 )
                 .equatable()
-
-                DisclosureGroup("Source Drawer", isExpanded: $showSources) {
-                    VStack(alignment: .leading, spacing: 10) {
+            case .sources:
+                ControlPanelCard(title: "Source Drawer") {
+                    if version.sourceRefs.isEmpty {
+                        Text("No source excerpts are attached to this draft yet.")
+                            .foregroundStyle(.secondary)
+                    } else {
                         ForEach(version.sourceRefs) { source in
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(source.title).font(.headline)
                                 Text(source.excerpt)
                                     .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 10)
                         }
                     }
-                    .padding(.top, 8)
                 }
-                .padding(16)
-                .background(Color.white.opacity(0.9))
-                .clipShape(RoundedRectangle(cornerRadius: 20))
             }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(Color.accentColor.opacity(0.08), lineWidth: 1)
+        )
+    }
+}
+
+private enum EditSupportPanelTab: String, CaseIterable, Identifiable {
+    case suggestions
+    case images
+    case sources
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .suggestions: "AI"
+        case .images: "Images"
+        case .sources: "Sources"
         }
     }
 }
@@ -2790,10 +2850,16 @@ private struct TemplateLibraryView: View {
 }
 
 private struct TemplateEditorSheet: View {
+    private enum SourceMode {
+        case markdown
+        case latex
+    }
+
     let template: Template
     let onDismiss: () -> Void
     let onSave: (Template) -> Void
 
+    private let sourceMode: SourceMode
     @State private var name: String
     @State private var subtitle: String
     @State private var templateDescription: String
@@ -2803,33 +2869,95 @@ private struct TemplateEditorSheet: View {
         self.template = template
         self.onDismiss = onDismiss
         self.onSave = onSave
+        let initialLatexSource = template.latexAuthoringSource
+        self.sourceMode = initialLatexSource == nil ? .markdown : .latex
         _name = State(initialValue: template.name)
         _subtitle = State(initialValue: template.subtitle)
         _templateDescription = State(initialValue: template.templateDescription)
-        _templateBody = State(initialValue: template.body)
+        _templateBody = State(initialValue: initialLatexSource ?? template.body)
     }
 
-    private var workingTemplate: Template {
-        var config = template.config
-        if let parsed = try? MarkdownTemplate.parse(
-            templateBody,
-            defaultGoal: template.configuredGoalType,
-            defaultSampleDataKey: template.defaultSampleDataKey
-        ) {
-            config["goal"] = parsed.frontMatter.goal.rawValue
+    private func makeWorkingTemplate() throws -> Template {
+        let resolvedName = name.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? template.name
+        switch sourceMode {
+        case .markdown:
+            var config = template.config
+            if let parsed = try? MarkdownTemplate.parse(
+                templateBody,
+                defaultGoal: template.configuredGoalType,
+                defaultSampleDataKey: template.defaultSampleDataKey
+            ) {
+                config["goal"] = parsed.frontMatter.goal.rawValue
+            }
+            return template.updatedForAuthoring(
+                name: resolvedName,
+                subtitle: subtitle,
+                templateDescription: templateDescription,
+                body: templateBody,
+                config: config
+            )
+        case .latex:
+            let decoded = try TemplatePackLatexCodec.decode(
+                source: templateBody,
+                fallbackGoal: template.configuredGoalType
+            )
+            var pack = decoded.pack
+            pack.identity.name = resolvedName
+            pack.identity.description = subtitle
+            return template.updatedForLatexAuthoring(
+                name: resolvedName,
+                subtitle: subtitle,
+                templateDescription: templateDescription,
+                latexSource: templateBody,
+                pack: pack,
+                goalType: decoded.goalType
+            )
         }
-        return template.updatedForAuthoring(
-            name: name.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? template.name,
-            subtitle: subtitle,
-            templateDescription: templateDescription,
-            body: templateBody,
-            config: config
-        )
+    }
+
+    private var sourceTitle: String {
+        switch sourceMode {
+        case .markdown:
+            return "Markdown Template Source"
+        case .latex:
+            return "LaTeX Template Source"
+        }
+    }
+
+    private var sourceIntro: String {
+        switch sourceMode {
+        case .markdown:
+            return "Template source only lives here. Save a valid markdown template to make it available in New Note and Edit."
+        case .latex:
+            return "This template is authored from its own LaTeX prototype. Save a valid LaTeX source to keep this exact template available in New Note and Edit."
+        }
+    }
+
+    private var previewSubtitle: String {
+        switch sourceMode {
+        case .markdown:
+            return "A sample dataset is rendered through the current markdown template."
+        case .latex:
+            return "A sample dataset is rendered through this template's LaTeX-backed layout."
+        }
+    }
+
+    private var validationHint: String {
+        switch sourceMode {
+        case .markdown:
+            return "Template source is valid."
+        case .latex:
+            return "LaTeX template source is valid."
+        }
+    }
+
+    private var workingTemplate: Template? {
+        try? makeWorkingTemplate()
     }
 
     private var validationError: String? {
         do {
-            _ = try workingTemplate.markdownTemplate(fallbackGoal: workingTemplate.configuredGoalType)
+            _ = try makeWorkingTemplate()
             return nil
         } catch {
             return error.localizedDescription
@@ -2837,7 +2965,7 @@ private struct TemplateEditorSheet: View {
     }
 
     private var previewDraft: DraftVersion? {
-        guard validationError == nil else { return nil }
+        guard let workingTemplate else { return nil }
         let goal = workingTemplate.configuredGoalType
         let parsed = try? workingTemplate.markdownTemplate(fallbackGoal: goal)
         let sampleKey = parsed?.frontMatter.sampleDataKey ?? workingTemplate.defaultSampleDataKey
@@ -2867,7 +2995,7 @@ private struct TemplateEditorSheet: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Template Authoring")
                             .font(.title2.bold())
-                        Text("Template source only lives here. Save a valid markdown template to make it available in New Note and Edit.")
+                        Text(sourceIntro)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -2877,60 +3005,62 @@ private struct TemplateEditorSheet: View {
                     .buttonStyle(.bordered)
                 }
 
-                ResponsiveSplitLayout(
-                    leadingMinWidth: 520,
-                    trailingMinWidth: 420,
-                    trailingFixedWidth: 460
-                ) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
-                            TextField("Template Name", text: $name)
-                                .textFieldStyle(.roundedBorder)
-                            TextField("Subtitle", text: $subtitle)
-                                .textFieldStyle(.roundedBorder)
-                            TextField("Description", text: $templateDescription, axis: .vertical)
-                                .lineLimit(2...4)
-                                .textFieldStyle(.roundedBorder)
+                GeometryReader { proxy in
+                    let totalWidth = proxy.size.width
+                    let previewWidth = min(460, max(400, totalWidth * 0.38))
 
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Markdown Template Source")
-                                    .font(.headline)
-                                KeyboardFriendlyTextEditor(text: $templateBody)
-                                    .padding(16)
-                                    .frame(minHeight: 360)
-                                    .background(Color.white.opacity(0.96))
-                                    .clipShape(RoundedRectangle(cornerRadius: 22))
-                            }
+                    HStack(alignment: .top, spacing: 20) {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 16) {
+                                TextField("Template Name", text: $name)
+                                    .textFieldStyle(.roundedBorder)
+                                TextField("Subtitle", text: $subtitle)
+                                    .textFieldStyle(.roundedBorder)
+                                TextField("Description", text: $templateDescription, axis: .vertical)
+                                    .lineLimit(2...4)
+                                    .textFieldStyle(.roundedBorder)
 
-                            if let validationError {
-                                Label(validationError, systemImage: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
-                            } else {
-                                Label("Template source is valid.", systemImage: "checkmark.seal.fill")
-                                    .foregroundStyle(.green)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(sourceTitle)
+                                        .font(.headline)
+                                    KeyboardFriendlyTextEditor(text: $templateBody)
+                                        .padding(16)
+                                        .frame(maxWidth: .infinity, minHeight: 360, alignment: .topLeading)
+                                        .background(Color.white.opacity(0.96))
+                                        .clipShape(RoundedRectangle(cornerRadius: 22))
+                                }
+
+                                if let validationError {
+                                    Label(validationError, systemImage: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                } else {
+                                    Label(validationHint, systemImage: "checkmark.seal.fill")
+                                        .foregroundStyle(.green)
+                                }
                             }
+                            .padding(.bottom, 28)
                         }
-                        .padding(.bottom, 28)
-                    }
-                    .frame(maxHeight: .infinity, alignment: .topLeading)
-                } trailing: {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 14) {
-                            SectionTitle(title: "Live Preview", subtitle: "A sample dataset is rendered through the current markdown template.")
-                            if let previewDraft {
-                                StyledDraftPreview(version: previewDraft)
-                            } else {
-                                Text("Fix the validation issues to render a preview.")
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                                    .padding(20)
-                                    .background(Color.white.opacity(0.92))
-                                    .clipShape(RoundedRectangle(cornerRadius: 22))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 14) {
+                                SectionTitle(title: "Live Preview", subtitle: previewSubtitle)
+                                if let previewDraft {
+                                    StyledDraftPreview(version: previewDraft)
+                                } else {
+                                    Text("Fix the validation issues to render a preview.")
+                                        .foregroundStyle(.secondary)
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                                        .padding(20)
+                                        .background(Color.white.opacity(0.92))
+                                        .clipShape(RoundedRectangle(cornerRadius: 22))
+                                }
                             }
+                            .padding(.bottom, 28)
                         }
-                        .padding(.bottom, 28)
+                        .frame(width: previewWidth, alignment: .topLeading)
+                        .frame(maxHeight: .infinity, alignment: .topLeading)
                     }
-                    .frame(maxHeight: .infinity, alignment: .topLeading)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
@@ -2948,7 +3078,9 @@ private struct TemplateEditorSheet: View {
                 Spacer()
 
                 Button("Save Template") {
-                    onSave(workingTemplate)
+                    if let workingTemplate {
+                        onSave(workingTemplate)
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(validationError != nil || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

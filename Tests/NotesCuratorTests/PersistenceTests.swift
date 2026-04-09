@@ -70,6 +70,7 @@ struct PersistenceTests {
         let snapshot = try await repository.loadSnapshot()
 
         #expect(try snapshot.templates.first?.templatePack().layout.blocks.isEmpty == false)
+        #expect(snapshot.templates.first?.storedLatexSource?.contains("% notescurator.block:") == true)
     }
 
     @Test
