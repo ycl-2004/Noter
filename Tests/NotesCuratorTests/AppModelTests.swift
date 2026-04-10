@@ -727,7 +727,7 @@ struct AppModelTests {
         #expect(model.preferences == .recommendedLocalOllama)
         #expect(repository.snapshot.preferences == .recommendedLocalOllama)
         #expect(model.preferences.providerKind == .localOllama)
-        #expect(model.preferences.modelName == "qwen3:8b")
+        #expect(model.preferences.modelName == "qwen3.5:9b")
     }
 
     @Test
@@ -783,9 +783,9 @@ struct AppModelTests {
     }
 
     @Test
-    func appPreferencesDefaultRecommendedModelUsesQwenThreeEightB() {
-        #expect(AppPreferences.default.modelName == "qwen3:8b")
-        #expect(AppPreferences.recommendedLocalOllama.modelName == "qwen3:8b")
+    func appPreferencesDefaultRecommendedModelUsesQwenThreePointFiveNineB() {
+        #expect(AppPreferences.default.modelName == "qwen3.5:9b")
+        #expect(AppPreferences.recommendedLocalOllama.modelName == "qwen3.5:9b")
     }
 
     @Test
@@ -1181,7 +1181,8 @@ struct AppModelTests {
         try await model.load()
 
         #expect(model.templates.contains { $0.name == "Indigo Ink" && $0.scope == .system })
-        #expect(model.templates.contains { $0.name == "Emerald Grove" && $0.scope == .system })
+        #expect(model.templates.contains { $0.name == "Rose Studio" && $0.scope == .system })
+        #expect(model.templates.contains { $0.name == "Emerald Grove" } == false)
         #expect(model.templates.contains { $0.name == "Oceanic Blue Copy" } == false)
     }
 }

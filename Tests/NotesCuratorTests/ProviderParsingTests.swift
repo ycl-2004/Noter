@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import NotesCurator
 
@@ -12,6 +13,40 @@ struct ProviderParsingTests {
     func localOllamaDefaultsToIPv4Loopback() {
         let provider = LocalOllamaProvider(modelName: "qwen3:14b")
         #expect(provider.baseURL.absoluteString == "http://127.0.0.1:11434")
+    }
+
+    @Test
+    func localOllamaInstalledModelNamesReadTagsResponse() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        StubURLProtocol.requestHandler = { request in
+            #expect(request.url?.absoluteString == "http://127.0.0.1:11434/api/tags")
+
+            let body = """
+            {
+              "models": [
+                { "name": "qwen3.5:9b" },
+                { "name": "qwen3:8b" }
+              ]
+            }
+            """
+            let url = try #require(request.url)
+            let response = try #require(
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )
+            )
+            return (response, Data(body.utf8))
+        }
+        defer { StubURLProtocol.requestHandler = nil }
+
+        let models = try await LocalOllamaProvider.installedModelNames(session: session)
+        #expect(models == ["qwen3.5:9b", "qwen3:8b"])
     }
 
     @Test

@@ -191,6 +191,152 @@ enum TemplateLibraryPresentation {
         }
         return actions
     }
+
+    static func startsExpanded(for kind: TemplateKind) -> Bool {
+        switch kind {
+        case .content:
+            return true
+        case .visual:
+            return false
+        }
+    }
+
+    static func sectionTitle(for kind: TemplateKind, count: Int) -> String {
+        switch kind {
+        case .content:
+            return "Content Templates (\(count))"
+        case .visual:
+            return "Visual Templates (\(count))"
+        }
+    }
+
+    static func structuralPreview(for template: Template) -> TemplateStructuralPreview {
+        guard template.kind == .content else {
+            return .fallback
+        }
+
+        guard let pack = try? template.templatePack() else {
+            return .fallback
+        }
+
+        var rows: [TemplateStructuralPreviewRow] = []
+        var seenKinds = Set<TemplateStructuralPreviewKind>()
+
+        for block in pack.layout.blocks {
+            guard let row = previewRow(for: block) else { continue }
+            guard seenKinds.contains(row.kind) == false else { continue }
+            rows.append(row)
+            seenKinds.insert(row.kind)
+        }
+
+        let curatedRows = prioritizedPreviewRows(from: rows)
+        return curatedRows.isEmpty ? .fallback : TemplateStructuralPreview(rows: curatedRows)
+    }
+
+    private static func previewRow(for block: TemplateBlockSpec) -> TemplateStructuralPreviewRow? {
+        let binding = (block.fieldBinding ?? "").lowercased()
+        let variant = TemplateBlockStyleVariant(rawValue: block.styleVariant) ?? .standard
+
+        switch block.blockType {
+        case .title:
+            return nil
+        case .summary:
+            return TemplateStructuralPreviewRow(kind: .summary)
+        case .section:
+            return TemplateStructuralPreviewRow(kind: .section)
+        case .keyPoints:
+            return TemplateStructuralPreviewRow(kind: .bulletList)
+        case .cueQuestions, .reviewQuestions, .actionItems:
+            return TemplateStructuralPreviewRow(kind: .checklist)
+        case .glossary:
+            return TemplateStructuralPreviewRow(kind: .glossary)
+        case .studyCards:
+            return TemplateStructuralPreviewRow(kind: .flashcards)
+        case .warningBox:
+            return TemplateStructuralPreviewRow(kind: .warningBox)
+        case .exercise:
+            if binding.contains("example") {
+                return TemplateStructuralPreviewRow(kind: .calloutBox)
+            }
+            return TemplateStructuralPreviewRow(kind: .examBox)
+        case .callouts:
+            if binding.contains("code") || variant == .code {
+                return TemplateStructuralPreviewRow(kind: .codeBox)
+            }
+            if binding.contains("warning") || variant == .warning {
+                return TemplateStructuralPreviewRow(kind: .warningBox)
+            }
+            if binding.contains("exam") || variant == .exam {
+                return TemplateStructuralPreviewRow(kind: .examBox)
+            }
+            return TemplateStructuralPreviewRow(kind: .calloutBox)
+        }
+    }
+
+    private static func prioritizedPreviewRows(from rows: [TemplateStructuralPreviewRow]) -> [TemplateStructuralPreviewRow] {
+        guard rows.count > 5 else { return rows }
+
+        let mustKeep: Set<TemplateStructuralPreviewKind> = [
+            .summary,
+            .section,
+            .codeBox,
+            .examBox,
+            .flashcards,
+            .glossary
+        ]
+        let preferred: [TemplateStructuralPreviewKind] = [
+            .calloutBox,
+            .warningBox,
+            .checklist,
+            .bulletList
+        ]
+
+        var selectedKinds = Set(rows.compactMap { mustKeep.contains($0.kind) ? $0.kind : nil })
+        var selectedRows = rows.filter { selectedKinds.contains($0.kind) }
+
+        for kind in preferred where selectedRows.count < 5 {
+            guard let row = rows.first(where: { $0.kind == kind }), selectedKinds.contains(kind) == false else { continue }
+            selectedRows.append(row)
+            selectedKinds.insert(kind)
+        }
+
+        for row in rows where selectedRows.count < 5 {
+            guard selectedKinds.contains(row.kind) == false else { continue }
+            selectedRows.append(row)
+            selectedKinds.insert(row.kind)
+        }
+
+        return rows.filter { selectedKinds.contains($0.kind) }.prefix(5).map { $0 }
+    }
+}
+
+struct TemplateStructuralPreview: Equatable, Sendable {
+    var rows: [TemplateStructuralPreviewRow]
+
+    static let fallback = Self(
+        rows: [
+            .init(kind: .summary),
+            .init(kind: .section),
+            .init(kind: .bulletList)
+        ]
+    )
+}
+
+struct TemplateStructuralPreviewRow: Equatable, Sendable {
+    var kind: TemplateStructuralPreviewKind
+}
+
+enum TemplateStructuralPreviewKind: String, Equatable, Hashable, Sendable {
+    case summary
+    case section
+    case bulletList
+    case checklist
+    case glossary
+    case flashcards
+    case calloutBox
+    case codeBox
+    case warningBox
+    case examBox
 }
 
 enum FocusCanvasStageModel {

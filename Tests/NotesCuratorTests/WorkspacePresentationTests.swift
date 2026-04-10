@@ -13,6 +13,31 @@ struct WorkspacePresentationTests {
     }
 
     @Test
+    func templateLibraryDefaultsToExpandedContentAndCollapsedVisualSections() {
+        #expect(TemplateLibraryPresentation.startsExpanded(for: .content))
+        #expect(TemplateLibraryPresentation.startsExpanded(for: .visual) == false)
+        #expect(TemplateLibraryPresentation.sectionTitle(for: .content, count: 8) == "Content Templates (8)")
+        #expect(TemplateLibraryPresentation.sectionTitle(for: .visual, count: 10) == "Visual Templates (10)")
+    }
+
+    @Test
+    func templateLibraryStructuralPreviewDifferentiatesCoreContentPresets() throws {
+        let formal = try #require(Template.builtinContentTemplate(named: "Formal Document", goalType: .formalDocument))
+        let studyGuide = try #require(Template.builtinContentTemplate(named: "Study Guide", goalType: .structuredNotes))
+        let technical = try #require(Template.builtinContentTemplate(named: "Technical Deep Dive", goalType: .formalDocument))
+
+        let formalPreview = TemplateLibraryPresentation.structuralPreview(for: formal)
+        let studyGuidePreview = TemplateLibraryPresentation.structuralPreview(for: studyGuide)
+        let technicalPreview = TemplateLibraryPresentation.structuralPreview(for: technical)
+
+        #expect(formalPreview.rows.contains { $0.kind == .calloutBox })
+        #expect(studyGuidePreview.rows.contains { $0.kind == .examBox })
+        #expect(technicalPreview.rows.contains { $0.kind == .codeBox })
+        #expect(formalPreview != studyGuidePreview)
+        #expect(studyGuidePreview != technicalPreview)
+    }
+
+    @Test
     func homeSurfacePrefersWorkspacesQuickActionsAndCurrentWork() {
         let sections = HomeSurfacePolicy.defaultSections(hasSavedSession: true)
         #expect(sections == [.workspaces, .quickActions, .currentWork])

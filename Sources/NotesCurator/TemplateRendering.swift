@@ -440,16 +440,12 @@ extension Template {
 
     static var builtinVisualTemplates: [Template] {
         [
-            Template(kind: .visual, scope: .system, name: "Oceanic Blue", subtitle: "Trustworthy and clear", templateDescription: "Cool, crisp default for daily notes and exports.", config: ["accent": "#165FCA", "surface": "#F6F9FF", "mood": "Trustworthy and clear"]),
             Template(kind: .visual, scope: .system, name: "Graphite", subtitle: "Neutral and focused", templateDescription: "Quiet grayscale framing for business and technical documents.", config: ["accent": "#2A3347", "surface": "#F7F8FB", "mood": "Neutral and focused"]),
-            Template(kind: .visual, scope: .system, name: "Bloom", subtitle: "Warm and expressive", templateDescription: "A softer, more editorial presentation with warmer accents.", config: ["accent": "#D7568B", "surface": "#FFF8FB", "mood": "Warm and expressive"]),
+            Template(kind: .visual, scope: .system, name: "Indigo Ink", subtitle: "Modern and confident", templateDescription: "Clear indigo hierarchy for dense technical notes, problem sets, and annotated reading.", config: ["accent": "#4A56C8", "surface": "#F5F7FF", "mood": "Modern and confident"]),
             Template(kind: .visual, scope: .system, name: "Ivory Lecture", subtitle: "Academic and calm", templateDescription: "Warm serif-friendly framing for study-heavy material.", config: ["accent": "#7A5C2E", "surface": "#FFFCF8", "mood": "Academic and calm"]),
-            Template(kind: .visual, scope: .system, name: "Sage Ledger", subtitle: "Measured and composed", templateDescription: "Grounded green theme suited to plans, briefs, and reviews.", config: ["accent": "#2F6A57", "surface": "#F8FCFA", "mood": "Measured and composed"]),
-            Template(kind: .visual, scope: .system, name: "Indigo Ink", subtitle: "Modern and confident", templateDescription: "Confident blue-violet framing for denser technical notes.", config: ["accent": "#4F46E5", "surface": "#EEF2FF", "mood": "Modern and confident"]),
-            Template(kind: .visual, scope: .system, name: "Emerald Grove", subtitle: "Fresh and reliable", templateDescription: "Bright green accent theme for clean handoff documents.", config: ["accent": "#047857", "surface": "#ECFDF5", "mood": "Fresh and reliable"]),
-            Template(kind: .visual, scope: .system, name: "Amber Journal", subtitle: "Optimistic and editorial", templateDescription: "Warm amber theme that reads like a polished field journal.", config: ["accent": "#D97706", "surface": "#FFFBEB", "mood": "Optimistic and editorial"]),
-            Template(kind: .visual, scope: .system, name: "Rose Studio", subtitle: "Energetic and creative", templateDescription: "High-energy red-pink treatment for brainstorms and creative briefs.", config: ["accent": "#E11D48", "surface": "#FFF1F2", "mood": "Energetic and creative"]),
-            Template(kind: .visual, scope: .system, name: "Teal Current", subtitle: "Clean and balanced", templateDescription: "Balanced teal framing for steady, contemporary exports.", config: ["accent": "#0F766E", "surface": "#F0FDFA", "mood": "Clean and balanced"]),
+            Template(kind: .visual, scope: .system, name: "Oceanic Blue", subtitle: "Trustworthy and clear", templateDescription: "Cool, crisp default for daily notes, structured review, and polished exports.", config: ["accent": "#165FCA", "surface": "#F6F9FF", "mood": "Trustworthy and clear"]),
+            Template(kind: .visual, scope: .system, name: "Rose Studio", subtitle: "Editorial and energetic", templateDescription: "Muted rose treatment for annotations, creative reading notes, and softer emphasis.", config: ["accent": "#BE4B75", "surface": "#FFF7F8", "mood": "Editorial and energetic"]),
+            Template(kind: .visual, scope: .system, name: "Teal Current", subtitle: "Clean and balanced", templateDescription: "Calm teal framing for long reading sessions, reference notes, and steady hierarchy.", config: ["accent": "#0F766E", "surface": "#F3FCFA", "mood": "Clean and balanced"]),
         ]
     }
 

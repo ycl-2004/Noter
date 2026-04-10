@@ -442,11 +442,11 @@ struct DocumentTheme: Equatable, Sendable {
         case "indigo ink":
             return DocumentTheme(
                 name: "Indigo Ink",
-                accentHex: "#4F46E5",
-                accentSoftHex: "#EEF2FF",
-                surfaceHex: "#F7F7FF",
-                borderHex: "#D9DBFF",
-                secondaryHex: "#6467A8"
+                accentHex: "#4A56C8",
+                accentSoftHex: "#EEF1FF",
+                surfaceHex: "#F5F7FF",
+                borderHex: "#D6DCFF",
+                secondaryHex: "#646F9C"
             )
         case "emerald grove":
             return DocumentTheme(
@@ -469,19 +469,19 @@ struct DocumentTheme: Equatable, Sendable {
         case "rose studio":
             return DocumentTheme(
                 name: "Rose Studio",
-                accentHex: "#E11D48",
-                accentSoftHex: "#FFF1F2",
-                surfaceHex: "#FFF8F9",
-                borderHex: "#F7D2DA",
-                secondaryHex: "#9A5E6C"
+                accentHex: "#BE4B75",
+                accentSoftHex: "#FFF1F5",
+                surfaceHex: "#FFF7F8",
+                borderHex: "#F1D6DF",
+                secondaryHex: "#8E6371"
             )
         case "teal current":
             return DocumentTheme(
                 name: "Teal Current",
                 accentHex: "#0F766E",
                 accentSoftHex: "#F0FDFA",
-                surfaceHex: "#F7FFFD",
-                borderHex: "#CDEEE8",
+                surfaceHex: "#F3FCFA",
+                borderHex: "#CBEAE4",
                 secondaryHex: "#517E7A"
             )
         default:
@@ -1093,7 +1093,7 @@ struct AppPreferences: Codable, Equatable, Sendable {
     static let recommendedLocalOllama = AppPreferences(
         providerKind: .localOllama,
         hostedService: .nvidia,
-        modelName: "qwen3:8b",
+        modelName: "qwen3.5:9b",
         defaultOutputLanguage: .english,
         defaultExportFormat: .pdf,
         autoSave: true,
@@ -1109,7 +1109,7 @@ struct AppPreferences: Codable, Equatable, Sendable {
     static let `default` = AppPreferences(
         providerKind: .heuristicFallback,
         hostedService: .nvidia,
-        modelName: "qwen3:8b",
+        modelName: "qwen3.5:9b",
         defaultOutputLanguage: .english,
         defaultExportFormat: .pdf,
         autoSave: true,

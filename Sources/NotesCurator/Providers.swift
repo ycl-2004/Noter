@@ -1057,6 +1057,37 @@ struct LocalOllamaProvider: ProviderAdapter {
         self.session = session
     }
 
+    static func installedModelNames(
+        baseURL: URL = URL(string: "http://127.0.0.1:11434")!,
+        session: URLSession = ProviderHTTP.session
+    ) async throws -> [String] {
+        var request = URLRequest(url: baseURL.appending(path: "api/tags"))
+        request.httpMethod = "GET"
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw ProviderRequestError.ollamaUnavailable(baseURL: baseURL.absoluteString)
+            }
+            guard httpResponse.statusCode == 200 else {
+                let message = extractedMessage(from: data)
+                throw ProviderRequestError.ollamaRequestFailed(
+                    baseURL: baseURL.absoluteString,
+                    modelName: "",
+                    statusCode: httpResponse.statusCode,
+                    message: message
+                )
+            }
+
+            let tags = try JSONDecoder().decode(OllamaTagsResponse.self, from: data)
+            return tags.models.map(\.name)
+        } catch let error as ProviderRequestError {
+            throw error
+        } catch {
+            throw ProviderRequestError.ollamaUnavailable(baseURL: baseURL.absoluteString)
+        }
+    }
+
     func healthcheck() async -> Bool {
         await providerHealthStatus().isHealthy
     }
@@ -1151,31 +1182,7 @@ struct LocalOllamaProvider: ProviderAdapter {
     }
 
     private func installedModels() async throws -> [String] {
-        var request = URLRequest(url: baseURL.appending(path: "api/tags"))
-        request.httpMethod = "GET"
-
-        do {
-            let (data, response) = try await session.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw ProviderRequestError.ollamaUnavailable(baseURL: baseURL.absoluteString)
-            }
-            guard httpResponse.statusCode == 200 else {
-                let message = extractedMessage(from: data)
-                throw ProviderRequestError.ollamaRequestFailed(
-                    baseURL: baseURL.absoluteString,
-                    modelName: modelName,
-                    statusCode: httpResponse.statusCode,
-                    message: message
-                )
-            }
-
-            let tags = try JSONDecoder().decode(OllamaTagsResponse.self, from: data)
-            return tags.models.map(\.name)
-        } catch let error as ProviderRequestError {
-            throw error
-        } catch {
-            throw ProviderRequestError.ollamaUnavailable(baseURL: baseURL.absoluteString)
-        }
+        try await Self.installedModelNames(baseURL: baseURL, session: session)
     }
 
     private func requestError(from data: Data, statusCode: Int?) async throws -> ProviderRequestError {

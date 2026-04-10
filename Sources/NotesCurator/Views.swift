@@ -2691,6 +2691,8 @@ private struct TemplateLibraryView: View {
     @State private var editingTemplate: Template?
     @State private var templatePendingDeletion: Template?
     @State private var isShowingLatexImportSheet = false
+    @State private var isContentTemplatesExpanded = TemplateLibraryPresentation.startsExpanded(for: .content)
+    @State private var isVisualTemplatesExpanded = TemplateLibraryPresentation.startsExpanded(for: .visual)
 
     var body: some View {
         Group {
@@ -2715,8 +2717,16 @@ private struct TemplateLibraryView: View {
                             }
                             .buttonStyle(.borderedProminent)
                         }
-                        templateSection(title: "Content Templates", templates: model.contentTemplates)
-                        templateSection(title: "Visual Templates", templates: model.visualTemplates)
+                        templateSection(
+                            kind: .content,
+                            templates: model.contentTemplates,
+                            isExpanded: $isContentTemplatesExpanded
+                        )
+                        templateSection(
+                            kind: .visual,
+                            templates: model.visualTemplates,
+                            isExpanded: $isVisualTemplatesExpanded
+                        )
                     }
                     .padding(32)
                 }
@@ -2763,62 +2773,37 @@ private struct TemplateLibraryView: View {
         }
     }
 
-    private func templateSection(title: String, templates: [Template]) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title)
-                .font(.title2.bold())
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
-                ForEach(templates) { template in
-                    VStack(alignment: .leading, spacing: 12) {
-                        Button {
-                            selectedTemplate = template
-                        } label: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(template.name)
-                                    .font(.headline)
-                                Text(template.scope == .system ? "System preset" : "User saved")
-                                    .foregroundStyle(.secondary)
-                                Text(templatePreviewLine(for: template))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .topLeading)
-                            .contentShape(RoundedRectangle(cornerRadius: 18))
-                        }
-                        .buttonStyle(.plain)
-
-                        HStack(spacing: 8) {
-                            Button("Preview") {
-                                selectedTemplate = template
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-
-                            if template.kind == .content {
-                                Button("Edit") {
-                                    editingTemplate = editableTemplate(for: template)
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
-
-                            Spacer()
-
-                            if template.scope == .user {
-                                Button(role: .destructive) {
-                                    templatePendingDeletion = template
-                                } label: {
-                                    Image(systemName: "trash")
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
-                        }
+    private func templateSection(
+        kind: TemplateKind,
+        templates: [Template],
+        isExpanded: Binding<Bool>
+    ) -> some View {
+        CollapsibleTemplateLibrarySection(
+            title: TemplateLibraryPresentation.sectionTitle(for: kind, count: templates.count),
+            isExpanded: isExpanded
+        ) {
+            if kind == .content {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 16)], spacing: 16) {
+                    ForEach(templates) { template in
+                        TemplateLibraryContentCard(
+                            template: template,
+                            previewLine: templatePreviewLine(for: template),
+                            onPreview: { selectedTemplate = template },
+                            onEdit: template.kind == .content ? { editingTemplate = editableTemplate(for: template) } : nil,
+                            onDelete: template.scope == .user ? { templatePendingDeletion = template } : nil
+                        )
                     }
-                    .padding(18)
-                    .frame(maxWidth: .infinity, minHeight: 140, alignment: .topLeading)
-                    .background(Color.white.opacity(0.92))
-                    .clipShape(RoundedRectangle(cornerRadius: 24))
+                }
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 16)], spacing: 16) {
+                    ForEach(templates) { template in
+                        TemplateLibraryVisualCard(
+                            template: template,
+                            previewLine: templatePreviewLine(for: template),
+                            onPreview: { selectedTemplate = template },
+                            onDelete: template.scope == .user ? { templatePendingDeletion = template } : nil
+                        )
+                    }
                 }
             }
         }
@@ -2846,6 +2831,444 @@ private struct TemplateLibraryView: View {
         }
 
         return template.editableCopy(scope: .user)
+    }
+}
+
+private struct CollapsibleTemplateLibrarySection<Content: View>: View {
+    let title: String
+    @Binding var isExpanded: Bool
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(isExpanded ? Color.accentColor.opacity(0.10) : Color.white.opacity(0.86))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.accentColor.opacity(isExpanded ? 0.24 : 0.10), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                content
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+}
+
+private struct TemplateLibraryContentCard: View {
+    let template: Template
+    let previewLine: String
+    let onPreview: () -> Void
+    let onEdit: (() -> Void)?
+    let onDelete: (() -> Void)?
+
+    private var scopeLabel: String {
+        template.scope == .system ? "System preset" : "User saved"
+    }
+
+    private var detailText: String {
+        template.templateDescription.nonEmpty ?? previewLine
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(template.name)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(scopeLabel)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(previewLine)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary.opacity(0.84))
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 10)
+
+                TemplateStructuralThumbnailPreview(
+                    preview: TemplateLibraryPresentation.structuralPreview(for: template)
+                )
+            }
+
+            Text(detailText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(5)
+
+            Spacer(minLength: 0)
+
+            TemplateLibraryCardActions(
+                showsEditAction: onEdit != nil,
+                showsDeleteAction: onDelete != nil,
+                onPreview: onPreview,
+                onEdit: onEdit,
+                onDelete: onDelete
+            )
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, minHeight: 198, alignment: .topLeading)
+        .background(Color.white.opacity(0.96))
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.05), radius: 10, y: 4)
+    }
+}
+
+private struct TemplateLibraryVisualCard: View {
+    let template: Template
+    let previewLine: String
+    let onPreview: () -> Void
+    let onDelete: (() -> Void)?
+
+    private var scopeLabel: String {
+        template.scope == .system ? "System preset" : "User saved"
+    }
+
+    private var resolvedThemeName: String {
+        template.config["source"] ?? template.name
+    }
+
+    private var accentHex: String {
+        template.config["accent"] ?? DocumentTheme.named(resolvedThemeName).accentHex
+    }
+
+    private var surfaceHex: String {
+        template.config["surface"] ?? DocumentTheme.named(resolvedThemeName).surfaceHex
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(template.name)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(scopeLabel)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(previewLine)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 10)
+
+                TemplateLibraryPaletteGlyph(accentHex: accentHex, surfaceHex: surfaceHex)
+            }
+
+            HStack(spacing: 10) {
+                templatePaletteLabel(title: "Accent", hex: accentHex)
+                templatePaletteLabel(title: "Surface", hex: surfaceHex)
+            }
+
+            Spacer(minLength: 0)
+
+            TemplateLibraryCardActions(
+                showsEditAction: false,
+                showsDeleteAction: onDelete != nil,
+                onPreview: onPreview,
+                onEdit: nil,
+                onDelete: onDelete
+            )
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, minHeight: 148, alignment: .topLeading)
+        .background(Color.white.opacity(0.96))
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.05), radius: 10, y: 4)
+    }
+
+    private func templatePaletteLabel(title: String, hex: String) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Color(hex: hex) ?? .clear)
+                .frame(width: 12, height: 12)
+                .overlay(
+                    Circle()
+                        .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                )
+            Text("\(title) \(hex)")
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+}
+
+private struct TemplateLibraryCardActions: View {
+    let showsEditAction: Bool
+    let showsDeleteAction: Bool
+    let onPreview: () -> Void
+    let onEdit: (() -> Void)?
+    let onDelete: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button("Preview") {
+                onPreview()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+
+            if showsEditAction, let onEdit {
+                Button("Edit") {
+                    onEdit()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            Spacer(minLength: 0)
+
+            if showsDeleteAction, let onDelete {
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+    }
+}
+
+private struct TemplateStructuralThumbnailPreview: View {
+    let preview: TemplateStructuralPreview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.black.opacity(0.14))
+                .frame(width: 42, height: 6)
+
+            ForEach(Array(preview.rows.enumerated()), id: \.offset) { _, row in
+                TemplateStructuralThumbnailRow(row: row)
+            }
+        }
+        .padding(10)
+        .frame(width: 78, height: 96, alignment: .topLeading)
+        .background(Color(NSColor.windowBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+        )
+    }
+}
+
+private struct TemplateStructuralThumbnailRow: View {
+    let row: TemplateStructuralPreviewRow
+
+    var body: some View {
+        switch row.kind {
+        case .summary:
+            summaryRow
+        case .section:
+            sectionRow
+        case .bulletList:
+            bulletListRow
+        case .checklist:
+            checklistRow
+        case .glossary:
+            glossaryRow
+        case .flashcards:
+            flashcardsRow
+        case .calloutBox:
+            boxedRow(fill: Color.accentColor.opacity(0.08), stroke: Color.accentColor.opacity(0.16), titleWidth: 18)
+        case .codeBox:
+            boxedRow(fill: Color.black.opacity(0.05), stroke: Color.black.opacity(0.12), titleWidth: 24)
+        case .warningBox:
+            boxedRow(fill: Color.orange.opacity(0.10), stroke: Color.orange.opacity(0.20), titleWidth: 20)
+        case .examBox:
+            boxedRow(fill: Color.blue.opacity(0.08), stroke: Color.blue.opacity(0.18), titleWidth: 22)
+        }
+    }
+
+    private var summaryRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color.black.opacity(0.10))
+                .frame(width: 28, height: 5)
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color.black.opacity(0.06))
+                .frame(width: 48, height: 4)
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color.black.opacity(0.06))
+                .frame(width: 38, height: 4)
+        }
+    }
+
+    private var sectionRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color.black.opacity(0.12))
+                .frame(width: 32, height: 5)
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color.black.opacity(0.05))
+                .frame(width: 50, height: 4)
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color.black.opacity(0.05))
+                .frame(width: 43, height: 4)
+        }
+    }
+
+    private var bulletListRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            bulletLine(width: 42)
+            bulletLine(width: 36)
+            bulletLine(width: 45)
+        }
+    }
+
+    private var checklistRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            checklistLine(width: 36)
+            checklistLine(width: 44)
+        }
+    }
+
+    private var glossaryRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            glossaryLine(width: 20, valueWidth: 28)
+            glossaryLine(width: 16, valueWidth: 32)
+        }
+    }
+
+    private var flashcardsRow: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.blue.opacity(0.07))
+                .frame(width: 52, height: 10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.blue.opacity(0.16), lineWidth: 1)
+                )
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.blue.opacity(0.04))
+                .frame(width: 46, height: 10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.blue.opacity(0.12), lineWidth: 1)
+                )
+        }
+    }
+
+    private func boxedRow(fill: Color, stroke: Color, titleWidth: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(fill)
+            .frame(height: 18)
+            .overlay(
+                VStack(alignment: .leading, spacing: 4) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(stroke)
+                        .frame(width: titleWidth, height: 4)
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(stroke.opacity(0.65))
+                        .frame(width: 46, height: 4)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4),
+                alignment: .topLeading
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(stroke, lineWidth: 1)
+            )
+    }
+
+    private func bulletLine(width: CGFloat) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(Color.black.opacity(0.18))
+                .frame(width: 4, height: 4)
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color.black.opacity(0.07))
+                .frame(width: width, height: 4)
+        }
+    }
+
+    private func checklistLine(width: CGFloat) -> some View {
+        HStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 2)
+                .stroke(Color.black.opacity(0.18), lineWidth: 1)
+                .frame(width: 6, height: 6)
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color.black.opacity(0.07))
+                .frame(width: width, height: 4)
+        }
+    }
+
+    private func glossaryLine(width: CGFloat, valueWidth: CGFloat) -> some View {
+        HStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color.black.opacity(0.11))
+                .frame(width: width, height: 4)
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color.black.opacity(0.05))
+                .frame(width: valueWidth, height: 4)
+        }
+    }
+}
+
+private struct TemplateLibraryPaletteGlyph: View {
+    let accentHex: String
+    let surfaceHex: String
+
+    var body: some View {
+        VStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(hex: accentHex) ?? .accentColor)
+                .frame(width: 54, height: 18)
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(hex: surfaceHex) ?? Color(NSColor.windowBackgroundColor))
+                .frame(width: 54, height: 18)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                )
+        }
+        .padding(10)
+        .background(Color(NSColor.windowBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+        )
     }
 }
 
@@ -3141,6 +3564,9 @@ private struct ExportsView: View {
 private struct SettingsView: View {
     @Bindable var model: NotesCuratorAppModel
     @State private var draftPreferences: AppPreferences = .default
+    @State private var installedOllamaModels: [String] = []
+    @State private var isRefreshingOllamaModels = false
+    @State private var ollamaModelsStatusMessage: String?
 
     var body: some View {
         Form {
@@ -3153,21 +3579,55 @@ private struct SettingsView: View {
                 TextField("Model", text: $draftPreferences.modelName)
                 if draftPreferences.providerKind == .localOllama {
                     VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .center, spacing: 10) {
+                            Picker("Installed Models", selection: $draftPreferences.modelName) {
+                                if !draftPreferences.modelName.isEmpty,
+                                   installedOllamaModels.contains(draftPreferences.modelName) == false {
+                                    Text("Manual: \(draftPreferences.modelName)").tag(draftPreferences.modelName)
+                                }
+
+                                if installedOllamaModels.isEmpty {
+                                    Text(isRefreshingOllamaModels ? "Loading installed models..." : "No installed models found").tag(draftPreferences.modelName)
+                                } else {
+                                    ForEach(installedOllamaModels, id: \.self) { modelName in
+                                        Text(modelName).tag(modelName)
+                                    }
+                                }
+                            }
+                            .pickerStyle(.menu)
+
+                            Button(isRefreshingOllamaModels ? "Refreshing..." : "Refresh Models") {
+                                Task {
+                                    await refreshInstalledOllamaModels()
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isRefreshingOllamaModels)
+                        }
+
+                        if let ollamaModelsStatusMessage {
+                            Text(ollamaModelsStatusMessage)
+                                .font(.footnote)
+                                .foregroundStyle(ollamaModelsStatusMessage.localizedCaseInsensitiveContains("unavailable") ? Color.orange : Color.secondary)
+                        }
+
                         Text("Faster local presets")
                             .font(.footnote.weight(.semibold))
                         ViewThatFits(in: .horizontal) {
                             HStack(spacing: 8) {
+                                modelPresetButton("qwen3.5:9b")
                                 modelPresetButton("qwen3:8b")
                                 modelPresetButton("qwen3:4b")
-                                modelPresetButton("llama3.1:8b")
+                                modelPresetButton("llama3.2:3b")
                             }
                             VStack(alignment: .leading, spacing: 8) {
+                                modelPresetButton("qwen3.5:9b")
                                 modelPresetButton("qwen3:8b")
                                 modelPresetButton("qwen3:4b")
-                                modelPresetButton("llama3.1:8b")
+                                modelPresetButton("llama3.2:3b")
                             }
                         }
-                        Text("Smaller 7B-8B models are usually much faster than qwen3:14b for note generation. Install missing models first with `ollama pull <model>`.")
+                        Text("Choose any installed local model here, or type a model name manually. Install missing models first with `ollama pull <model>`.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -3289,6 +3749,17 @@ private struct SettingsView: View {
             Task { @MainActor in
                 await model.refreshProviderStatus()
             }
+            if draftPreferences.providerKind == .localOllama {
+                Task {
+                    await refreshInstalledOllamaModels()
+                }
+            }
+        }
+        .onChange(of: draftPreferences.providerKind) { _, newProvider in
+            guard newProvider == .localOllama else { return }
+            Task {
+                await refreshInstalledOllamaModels()
+            }
         }
     }
 
@@ -3385,6 +3856,29 @@ private struct SettingsView: View {
             return "Claude uses Anthropic's native Messages API under the hood, but it still plugs into the same staged workflow once you add your API key."
         case .gemini:
             return "Gemini uses Google's native Generative Language API under the hood, and staged routing will still run once you add your API key."
+        }
+    }
+
+    @MainActor
+    private func refreshInstalledOllamaModels() async {
+        isRefreshingOllamaModels = true
+        defer { isRefreshingOllamaModels = false }
+
+        do {
+            let models = try await LocalOllamaProvider.installedModelNames()
+                .sorted { lhs, rhs in
+                    lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+                }
+            installedOllamaModels = models
+
+            if models.isEmpty {
+                ollamaModelsStatusMessage = "No installed Ollama models were reported. You can still type a model name manually."
+            } else {
+                ollamaModelsStatusMessage = "Found \(models.count) installed model\(models.count == 1 ? "" : "s")."
+            }
+        } catch {
+            installedOllamaModels = []
+            ollamaModelsStatusMessage = error.localizedDescription
         }
     }
 }
