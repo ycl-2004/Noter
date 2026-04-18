@@ -11,7 +11,7 @@ enum TemplatePackDefaults {
 
         switch archetype {
         case .technicalNote:
-            if normalizedName == "summary" {
+            if normalizedName == "summary" || normalizedName == "quick summary" {
                 return summaryPack(
                     named: name,
                     description: resolvedDescription(description, fallback: "Fast condensation"),
@@ -106,6 +106,7 @@ enum TemplatePackDefaults {
                 RecommendedField(key: "example_boxes", label: "Example Boxes", requiredLevel: .preferredOptional),
                 RecommendedField(key: "warning_boxes", label: "Common Mistakes", requiredLevel: .preferredOptional),
                 RecommendedField(key: "exam_boxes", label: "Exam Tips", requiredLevel: .preferredOptional),
+                RecommendedField(key: "checklist_boxes", label: "Review Checklists", requiredLevel: .preferredOptional),
                 RecommendedField(key: "result_boxes", label: "Recap Boxes", requiredLevel: .preferredOptional),
             ]),
             layout: LayoutSpec(blocks: [
@@ -116,6 +117,7 @@ enum TemplatePackDefaults {
                 TemplateBlockSpec(blockType: .callouts, fieldBinding: "example_boxes", titleOverride: "Example", styleVariant: TemplateBlockStyleVariant.standard.rawValue, emptyBehavior: .hidden),
                 TemplateBlockSpec(blockType: .warningBox, fieldBinding: "warning_boxes", titleOverride: "Common Mistake", styleVariant: TemplateBlockStyleVariant.warning.rawValue, emptyBehavior: .hidden),
                 TemplateBlockSpec(blockType: .exercise, fieldBinding: "exam_boxes", titleOverride: "Exam Tip", styleVariant: TemplateBlockStyleVariant.exam.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .actionItems, fieldBinding: "checklist_boxes", titleOverride: "Review Checklist", styleVariant: TemplateBlockStyleVariant.result.rawValue, emptyBehavior: .hidden),
                 TemplateBlockSpec(blockType: .actionItems, fieldBinding: "result_boxes", titleOverride: "Quick Recap", styleVariant: TemplateBlockStyleVariant.result.rawValue, emptyBehavior: .hidden),
             ]),
             style: style,
@@ -137,8 +139,9 @@ enum TemplatePackDefaults {
                 RecommendedField(key: "sections", label: "Core Relationships", requiredLevel: .templateRequired),
                 RecommendedField(key: "code_boxes", label: "Formula Boxes", requiredLevel: .preferredOptional),
                 RecommendedField(key: "warning_boxes", label: "Exam Traps", requiredLevel: .preferredOptional),
-                RecommendedField(key: "exam_boxes", label: "Practice Prompts", requiredLevel: .preferredOptional),
-                RecommendedField(key: "result_boxes", label: "Revision Checklists", requiredLevel: .preferredOptional),
+                RecommendedField(key: "question_boxes", label: "Practice Prompts", requiredLevel: .preferredOptional),
+                RecommendedField(key: "checklist_boxes", label: "Revision Checklists", requiredLevel: .preferredOptional),
+                RecommendedField(key: "result_boxes", label: "Before the Exam", requiredLevel: .preferredOptional),
             ]),
             layout: LayoutSpec(blocks: [
                 TemplateBlockSpec(blockType: .summary, fieldBinding: "summary_boxes", titleOverride: "What This Study Guide Covers", styleVariant: TemplateBlockStyleVariant.summary.rawValue),
@@ -146,7 +149,8 @@ enum TemplatePackDefaults {
                 TemplateBlockSpec(blockType: .section, fieldBinding: "sections", titleOverride: "Core Relationships", styleVariant: TemplateBlockStyleVariant.standard.rawValue),
                 TemplateBlockSpec(blockType: .callouts, fieldBinding: "code_boxes", titleOverride: "Formula Set", styleVariant: TemplateBlockStyleVariant.code.rawValue, emptyBehavior: .hidden),
                 TemplateBlockSpec(blockType: .warningBox, fieldBinding: "warning_boxes", titleOverride: "Most Common Mistakes", styleVariant: TemplateBlockStyleVariant.warning.rawValue, emptyBehavior: .hidden),
-                TemplateBlockSpec(blockType: .exercise, fieldBinding: "exam_boxes", titleOverride: "Short Answer Practice", styleVariant: TemplateBlockStyleVariant.exam.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .exercise, fieldBinding: "question_boxes", titleOverride: "Short Answer Practice", styleVariant: TemplateBlockStyleVariant.exam.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .actionItems, fieldBinding: "checklist_boxes", titleOverride: "Revision Checklist", styleVariant: TemplateBlockStyleVariant.result.rawValue, emptyBehavior: .hidden),
                 TemplateBlockSpec(blockType: .actionItems, fieldBinding: "result_boxes", titleOverride: "Before the Exam", styleVariant: TemplateBlockStyleVariant.result.rawValue, emptyBehavior: .hidden),
             ]),
             style: style,
@@ -227,18 +231,26 @@ enum TemplatePackDefaults {
             identity: TemplatePackIdentity(name: name, description: description),
             archetype: .formalBrief,
             schema: RecommendedSchema(fields: [
-                RecommendedField(key: "overview", label: "Executive Summary", requiredLevel: .coreRequired),
+                RecommendedField(key: "meta_boxes", label: "Document Metadata", requiredLevel: .preferredOptional),
+                RecommendedField(key: "summary_boxes", label: "Executive Summary", requiredLevel: .coreRequired),
+                RecommendedField(key: "key_boxes", label: "Key Insight", requiredLevel: .preferredOptional),
                 RecommendedField(key: "sections", label: "Main Body", requiredLevel: .templateRequired),
-                RecommendedField(key: "key_boxes", label: "Key Points", requiredLevel: .preferredOptional),
+                RecommendedField(key: "explanation_boxes", label: "Scope and Context", requiredLevel: .preferredOptional),
+                RecommendedField(key: "warning_boxes", label: "Risks", requiredLevel: .preferredOptional),
+                RecommendedField(key: "code_boxes", label: "Reference Snippets", requiredLevel: .preferredOptional),
+                RecommendedField(key: "question_boxes", label: "Review Questions", requiredLevel: .preferredOptional),
                 RecommendedField(key: "result_boxes", label: "Recommendations", requiredLevel: .preferredOptional),
-                RecommendedField(key: "explanation_boxes", label: "Purpose Callouts", requiredLevel: .preferredOptional),
             ]),
             layout: LayoutSpec(blocks: [
-                TemplateBlockSpec(blockType: .summary, fieldBinding: "overview", titleOverride: "Executive Summary", styleVariant: TemplateBlockStyleVariant.summary.rawValue),
-                TemplateBlockSpec(blockType: .callouts, fieldBinding: "explanation_boxes", titleOverride: "Purpose", styleVariant: TemplateBlockStyleVariant.summary.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .callouts, fieldBinding: "meta_boxes", titleOverride: "Document Metadata", styleVariant: TemplateBlockStyleVariant.standard.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .summary, fieldBinding: "summary_boxes", titleOverride: "Executive Summary", styleVariant: TemplateBlockStyleVariant.summary.rawValue),
+                TemplateBlockSpec(blockType: .keyPoints, fieldBinding: "key_boxes", titleOverride: "Key Insight", styleVariant: TemplateBlockStyleVariant.key.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .callouts, fieldBinding: "explanation_boxes", titleOverride: "Scope", styleVariant: TemplateBlockStyleVariant.summary.rawValue, emptyBehavior: .hidden),
                 TemplateBlockSpec(blockType: .section, fieldBinding: "sections", styleVariant: TemplateBlockStyleVariant.standard.rawValue),
-                TemplateBlockSpec(blockType: .keyPoints, fieldBinding: "key_boxes", titleOverride: "Key Points", styleVariant: TemplateBlockStyleVariant.key.rawValue, emptyBehavior: .hidden),
-                TemplateBlockSpec(blockType: .actionItems, fieldBinding: "result_boxes", titleOverride: "Conclusion", styleVariant: TemplateBlockStyleVariant.result.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .warningBox, fieldBinding: "warning_boxes", titleOverride: "Risks and Warnings", styleVariant: TemplateBlockStyleVariant.warning.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .callouts, fieldBinding: "code_boxes", titleOverride: "Reference Snippet", styleVariant: TemplateBlockStyleVariant.code.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .exercise, fieldBinding: "question_boxes", titleOverride: "Questions for Review", styleVariant: TemplateBlockStyleVariant.exam.rawValue, emptyBehavior: .hidden),
+                TemplateBlockSpec(blockType: .actionItems, fieldBinding: "result_boxes", titleOverride: "Recommendations and Next Steps", styleVariant: TemplateBlockStyleVariant.result.rawValue, emptyBehavior: .hidden),
             ]),
             style: style,
             behavior: TemplateBehaviorRules(followsVisualTheme: true)
@@ -489,13 +501,22 @@ private extension TemplatePackDefaults {
         if combined.contains("warning") || combined.contains("caution") || combined.contains("pitfall") {
             return ("warning_boxes", .warningBox, .warning)
         }
+        if combined.contains("metadata") || combined.contains("document data") || combined.contains("meta") {
+            return ("meta_boxes", .callouts, .standard)
+        }
         if combined.contains("result") || combined.contains("checklist") || combined.contains("prerequisite") || combined.contains("success") {
+            if combined.contains("checklist") || combined.contains("prerequisite") {
+                return ("checklist_boxes", .actionItems, .result)
+            }
             return ("result_boxes", .actionItems, .result)
         }
         if combined.contains("code") || combined.contains("command") || combined.contains("snippet") || combined.contains("query") || combined.contains("ascii") || combined.contains("config") {
             return ("code_boxes", .callouts, .code)
         }
         if combined.contains("exam") || combined.contains("exercise") || combined.contains("quiz") || combined.contains("q&a") || combined.contains("qa") || combined.contains("interview") || combined.contains("self check") || combined.contains("self-check") {
+            if combined.contains("question") || combined.contains("q&a") || combined.contains("qa") || combined.contains("interview") {
+                return ("question_boxes", .exercise, .exam)
+            }
             return ("exam_boxes", .exercise, .exam)
         }
         if combined.contains("explanation") || combined.contains("explainer") || combined.contains("note") {
@@ -544,6 +565,8 @@ private extension TemplatePackDefaults {
             return "Summary Boxes"
         case "key_boxes":
             return "Key Boxes"
+        case "meta_boxes":
+            return "Metadata Boxes"
         case "warning_boxes":
             return "Warning Boxes"
         case "code_boxes":
@@ -552,6 +575,10 @@ private extension TemplatePackDefaults {
             return "Result Boxes"
         case "exam_boxes":
             return "Exam Boxes"
+        case "checklist_boxes":
+            return "Checklist Boxes"
+        case "question_boxes":
+            return "Question Boxes"
         case "explanation_boxes":
             return "Explanation Boxes"
         case "example_boxes":

@@ -93,7 +93,8 @@ enum LatexTemplateImporter {
             source: normalized,
             fingerprint: fingerprint,
             inferredArchetype: archetype,
-            templatePack: templatePack
+            templatePack: templatePack,
+            latexProjectSource: nil
         )
     }
 
@@ -751,7 +752,8 @@ extension TemplateImportReview {
                 archetype: archetype,
                 fingerprint: fingerprint,
                 suggestedName: templatePack.identity.name
-            )
+            ),
+            latexProjectSource: latexProjectSource
         )
     }
 }

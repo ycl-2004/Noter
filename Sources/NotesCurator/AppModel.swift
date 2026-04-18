@@ -378,6 +378,7 @@ final class NotesCuratorAppModel {
         version.structuredDoc.exportMetadata.contentTemplateID = template.id
         version.structuredDoc.exportMetadata.contentTemplateName = template.name
         version.structuredDoc.exportMetadata.contentTemplatePackData = template.storedPackData
+        version.structuredDoc.exportMetadata.contentTemplateLatexProjectData = template.storedLatexProjectData
         try await persistCurrentVersion(version)
     }
 
@@ -583,6 +584,12 @@ final class NotesCuratorAppModel {
         editingTemplatePack = review.templatePack
     }
 
+    func beginLatexTemplateProjectImport(_ url: URL) throws {
+        let review = try LatexProjectTemplateImporter.importTemplateProject(from: url)
+        pendingTemplateImportReview = review
+        editingTemplatePack = review.templatePack
+    }
+
     func adjustPendingImportArchetype(_ archetype: TemplateArchetype) {
         pendingTemplateImportReview = pendingTemplateImportReview?.rebuild(for: archetype)
         editingTemplatePack = pendingTemplateImportReview?.templatePack
@@ -601,13 +608,26 @@ final class NotesCuratorAppModel {
         case .technicalNote:
             goalType = .structuredNotes
         }
-        let template = Template.packBacked(
-            pack,
-            scope: scope,
-            goalType: goalType,
-            templateDescription: pack.identity.description.isEmpty ? "Imported from LaTeX" : pack.identity.description,
-            latexSource: review.source
-        )
+        let template: Template
+        if let projectSource = review.latexProjectSource {
+            template = Template.latexProject(
+                projectSource,
+                scope: scope,
+                name: pack.identity.name,
+                subtitle: pack.identity.description,
+                templateDescription: pack.identity.description.isEmpty ? "Imported from LaTeX project" : pack.identity.description,
+                goalType: goalType,
+                pack: pack
+            )
+        } else {
+            template = Template.packBacked(
+                pack,
+                scope: scope,
+                goalType: goalType,
+                templateDescription: pack.identity.description.isEmpty ? "Imported from LaTeX" : pack.identity.description,
+                latexSource: review.source
+            )
+        }
         try await saveTemplate(template)
         pendingTemplateImportReview = nil
         editingTemplatePack = nil
@@ -1141,7 +1161,8 @@ final class NotesCuratorAppModel {
                     body: template.body,
                     config: template.config,
                     storedPackData: template.storedPackData,
-                    storedLatexSource: template.storedLatexSource
+                    storedLatexSource: template.storedLatexSource,
+                    storedLatexProjectData: template.storedLatexProjectData
                 )
                 try await repository.save(template: refreshed)
                 templates[index] = refreshed
@@ -1166,12 +1187,7 @@ final class NotesCuratorAppModel {
     }
 
     private func removeRedundantTemplateCopiesIfNeeded() async throws {
-        let redundantTemplates = templates.filter { template in
-            template.kind == .visual &&
-            template.scope == .user &&
-            template.config["source"] != nil &&
-            template.config.count == 1
-        }
+        let redundantTemplates = templates.filter(isRedundantVisualTemplateCopy)
 
         guard !redundantTemplates.isEmpty else { return }
 
@@ -1180,6 +1196,29 @@ final class NotesCuratorAppModel {
         }
         let redundantIDs = Set(redundantTemplates.map(\.id))
         templates.removeAll { redundantIDs.contains($0.id) }
+    }
+
+    private func isRedundantVisualTemplateCopy(_ template: Template) -> Bool {
+        template.kind == .visual &&
+            template.scope == .user &&
+            template.config["source"] != nil &&
+            template.config.count == 1
+    }
+
+    private func isLegacyBuiltinContentShadow(_ template: Template) -> Bool {
+        guard template.kind == .content,
+              template.scope == .user,
+              template.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              template.storedLatexProjectData == nil,
+              template.storedLatexSource?.hasPrefix("% NotesCurator LaTeX Template v1") == true,
+              let builtin = Template.builtinContentTemplate(named: template.name, goalType: template.configuredGoalType),
+              builtin.scope == .system,
+              builtin.format == .latexProject else {
+            return false
+        }
+
+        return template.subtitle == builtin.subtitle &&
+            template.templateDescription == builtin.templateDescription
     }
 
     private func sortTemplates() {
@@ -1193,7 +1232,13 @@ final class NotesCuratorAppModel {
     }
 
     private func contentTemplate(id: UUID) -> Template? {
-        templates.first { $0.kind == .content && $0.id == id }
+        guard let template = templates.first(where: { $0.kind == .content && $0.id == id }) else {
+            return nil
+        }
+        if isLegacyBuiltinContentShadow(template) {
+            return Template.builtinContentTemplate(named: template.name, goalType: template.configuredGoalType) ?? template
+        }
+        return template
     }
 
     private func resolvedContentTemplate(named name: String, goalType: GoalType) -> Template? {
@@ -1226,7 +1271,10 @@ final class NotesCuratorAppModel {
 
     private func effectiveTemplates(of kind: TemplateKind) -> [Template] {
         let ordered = templates
-            .filter { $0.kind == kind }
+            .filter { template in
+                template.kind == kind &&
+                    (kind != .content || isLegacyBuiltinContentShadow(template) == false)
+            }
             .sorted(by: templateSortOrder(_:_:))
 
         var preferredByName: [String: Template] = [:]
@@ -1243,7 +1291,9 @@ final class NotesCuratorAppModel {
 
     private func preferredTemplate(named name: String, kind: TemplateKind) -> Template? {
         let matches = templates.filter {
-            $0.kind == kind && templateLibraryKey(for: $0.name) == templateLibraryKey(for: name)
+            $0.kind == kind &&
+                templateLibraryKey(for: $0.name) == templateLibraryKey(for: name) &&
+                (kind != .content || isLegacyBuiltinContentShadow($0) == false)
         }
         return matches.first(where: { $0.scope == .user })
             ?? matches.first(where: { $0.scope == .system })

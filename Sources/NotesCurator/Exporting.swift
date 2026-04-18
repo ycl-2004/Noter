@@ -9,6 +9,8 @@ enum ExportError: Error {
 
 @MainActor
 struct ExportCoordinator: Sendable {
+    var latexCompiler: LatexProjectCompiler = .init()
+
     func previewText(draft: DraftVersion, format: ExportFormat) -> String {
         switch format {
         case .markdown:
@@ -21,6 +23,8 @@ struct ExportCoordinator: Sendable {
             plainPreview(for: draft)
         case .docx, .pdf:
             plainPreview(for: draft)
+        case .latex:
+            (try? draft.renderedLatexMainFile()) ?? plainPreview(for: draft)
         }
     }
 
@@ -40,6 +44,8 @@ struct ExportCoordinator: Sendable {
             return try exportDOCX(draft: draft, to: outputDirectory)
         case .pdf:
             return try exportPDF(draft: draft, to: outputDirectory)
+        case .latex:
+            return try exportLatexProject(draft: draft, to: outputDirectory)
         }
     }
 
@@ -112,6 +118,17 @@ struct ExportCoordinator: Sendable {
     }
 
     private func exportPDF(draft: DraftVersion, to directory: URL) throws -> URL {
+        if let project = draft.latexProjectForExport() {
+            let workDirectory = directory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let rendered = try LatexProjectRenderer.renderMainFile(project: project, document: draft.structuredDoc)
+            let renderedProject = project.updatingMainFile(text: rendered)
+            let pdfURL = try latexCompiler.compile(project: renderedProject, in: workDirectory)
+            let destination = directory.appendingPathComponent(fileStem(for: draft)).appendingPathExtension("pdf")
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.copyItem(at: pdfURL, to: destination)
+            return destination
+        }
+
         let url = directory.appendingPathComponent(fileStem(for: draft)).appendingPathExtension("pdf")
         if let pack = try? draft.resolvedTemplatePackForRendering(),
            let renderedTemplate = try? draft.renderedTemplateDocument(for: .export) {
@@ -198,6 +215,20 @@ struct ExportCoordinator: Sendable {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw ExportError.pdfCreationFailed
         }
+        return url
+    }
+
+    private func exportLatexProject(draft: DraftVersion, to directory: URL) throws -> URL {
+        if let project = draft.latexProjectForExport() {
+            let rendered = try LatexProjectRenderer.renderMainFile(project: project, document: draft.structuredDoc)
+            let destination = directory.appendingPathComponent(fileStem(for: draft), isDirectory: true)
+            try? FileManager.default.removeItem(at: destination)
+            _ = try project.writing(to: destination, renderedMainFile: rendered)
+            return destination
+        }
+
+        let url = directory.appendingPathComponent(fileStem(for: draft)).appendingPathExtension("tex")
+        try plainPreview(for: draft).write(to: url, atomically: true, encoding: .utf8)
         return url
     }
 

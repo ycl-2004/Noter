@@ -354,6 +354,7 @@ enum ProviderResponseParser {
             let fallbackMappings: [(String, StructuredTemplateBoxKind)] = [
                 ("summaryBoxes", .summary),
                 ("keyBoxes", .key),
+                ("metaBoxes", .meta),
                 ("highlights", .key),
                 ("warnings", .warning),
                 ("warningBoxes", .warning),
@@ -363,9 +364,11 @@ enum ProviderResponseParser {
                 ("snippets", .code),
                 ("resultBoxes", .result),
                 ("results", .result),
-                ("checklists", .result),
+                ("checklists", .checklist),
+                ("checklistBoxes", .checklist),
                 ("prerequisites", .result),
                 ("examBoxes", .exam),
+                ("questionBoxes", .question),
                 ("exercises", .exam),
                 ("interviewQuestions", .exam),
                 ("explanationBoxes", .explanation),
@@ -425,14 +428,20 @@ enum ProviderResponseParser {
             return .summary
         case "key", "keybox", "takeaway", "takeaways", "highlight", "highlights":
             return .key
+        case "meta", "metabox", "metadata", "documentmetadata":
+            return .meta
         case "warning", "warningbox", "pitfall", "pitfalls":
             return .warning
         case "code", "codebox", "command", "commands", "snippet", "snippets":
             return .code
-        case "result", "resultbox", "checklist", "checklists", "prepared":
+        case "result", "resultbox", "prepared":
             return .result
+        case "checklist", "checklists", "checklistbox":
+            return .checklist
         case "exam", "exambox", "exercise", "exercises", "quiz", "interview":
             return .exam
+        case "question", "questions", "questionbox", "qa", "qanda":
+            return .question
         case "explanation", "explanationbox", "explainer":
             return .explanation
         case "example", "examplebox":
@@ -446,10 +455,13 @@ enum ProviderResponseParser {
         switch kind {
         case .summary: return "Summary"
         case .key: return "Key Box"
+        case .meta: return "Metadata"
         case .warning: return "Warning"
         case .code: return "Code"
         case .result: return "Result"
         case .exam: return "Exam"
+        case .checklist: return "Checklist"
+        case .question: return "Question"
         case .explanation: return "Explanation"
         case .example: return "Example"
         }
@@ -1014,18 +1026,24 @@ struct HeuristicCurationProvider: ProviderAdapter {
         switch (kind, language) {
         case (.summary, .chinese): return "总结框"
         case (.key, .chinese): return "重点框"
+        case (.meta, .chinese): return "元信息框"
         case (.warning, .chinese): return "提醒框"
         case (.code, .chinese): return "代码框"
         case (.result, .chinese): return "结果框"
         case (.exam, .chinese): return "练习框"
+        case (.checklist, .chinese): return "清单框"
+        case (.question, .chinese): return "问题框"
         case (.explanation, .chinese): return "说明框"
         case (.example, .chinese): return "例子框"
         case (.summary, .english): return "Summary Box"
         case (.key, .english): return "Key Box"
+        case (.meta, .english): return "Metadata Box"
         case (.warning, .english): return "Warning Box"
         case (.code, .english): return "Code Box"
         case (.result, .english): return "Result Box"
         case (.exam, .english): return "Exam Box"
+        case (.checklist, .english): return "Checklist Box"
+        case (.question, .english): return "Question Box"
         case (.explanation, .english): return "Explanation Box"
         case (.example, .english): return "Example Box"
         }
@@ -1982,7 +2000,7 @@ private func repairPrompt(for draft: ProviderDraftResponse, sourceText: String) 
       "sections": [{"title": String, "body": String, "bulletPoints": [String]}],
       "glossary": [{"term": String, "definition": String}],
       "callouts": [{"kind": "keyIdea"|"note"|"warning"|"example", "title": String, "body": String}],
-      "templateBoxes": [{"kind": "summary"|"key"|"warning"|"code"|"result"|"exam"|"explanation"|"example", "title": String, "body": String, "items": [String]}],
+      "templateBoxes": [{"kind": "summary"|"key"|"meta"|"warning"|"code"|"result"|"exam"|"checklist"|"question"|"explanation"|"example", "title": String, "body": String, "items": [String]}],
       "studyCards": [{"question": String, "answer": String}],
       "actionItems": [String],
       "reviewQuestions": [String],
@@ -2069,7 +2087,7 @@ private func finalLearningPrompt(for input: ProviderDraftRequest, mergedFromChun
     - sections: { "title": string, "body": string, "bulletPoints": string[] }[]
     - glossary: { "term": string, "definition": string }[]
     - callouts: { "kind": "keyIdea" | "note" | "warning" | "example", "title": string, "body": string }[]
-    - templateBoxes: { "kind": "summary" | "key" | "warning" | "code" | "result" | "exam" | "explanation" | "example", "title": string, "body": string, "items": string[] }[]
+    - templateBoxes: { "kind": "summary" | "key" | "meta" | "warning" | "code" | "result" | "exam" | "checklist" | "question" | "explanation" | "example", "title": string, "body": string, "items": string[] }[]
     - studyCards: { "question": string, "answer": string }[]
     - actionItems: string[]
     - reviewQuestions: string[]
@@ -2121,7 +2139,7 @@ private func chunkDigestPrompt(for input: ProviderDraftRequest) -> String {
     - sections: { "title": string, "body": string, "bulletPoints": string[] }[]
     - glossary: { "term": string, "definition": string }[]
     - callouts: { "kind": "keyIdea" | "note" | "warning" | "example", "title": string, "body": string }[]
-    - templateBoxes: { "kind": "summary" | "key" | "warning" | "code" | "result" | "exam" | "explanation" | "example", "title": string, "body": string, "items": string[] }[]
+    - templateBoxes: { "kind": "summary" | "key" | "meta" | "warning" | "code" | "result" | "exam" | "checklist" | "question" | "explanation" | "example", "title": string, "body": string, "items": string[] }[]
     - studyCards: { "question": string, "answer": string }[]
     - actionItems: string[]
     - reviewQuestions: string[]
@@ -2237,14 +2255,20 @@ private func templateBoxPromptMeaning(for binding: String) -> String {
         return "short boxed summaries or quick recap cards"
     case "key_boxes":
         return "distilled core ideas, one-sentence takeaways, or main concepts"
+    case "meta_boxes":
+        return "document metadata such as topic, source, date, audience, tags, or version notes"
     case "warning_boxes":
         return "critical cautions, common pitfalls, constraints, or easy-to-miss facts"
     case "code_boxes":
         return "commands, code snippets, queries, config blocks, or pseudocode"
     case "result_boxes":
-        return "practical outcomes, prerequisite lists, deployment checklists, or success criteria"
+        return "practical outcomes, recommendations, final takeaways, success criteria, or next-step summaries"
     case "exam_boxes":
         return "self-check prompts, interview questions, drills, or exercises"
+    case "checklist_boxes":
+        return "revision lists, debug checklists, action checklists, or prerequisite checklists"
+    case "question_boxes":
+        return "active-recall prompts, interview questions, discussion prompts, or short-answer review questions"
     case "explanation_boxes":
         return "extra clarifications that deserve a boxed explainer instead of a long normal section"
     case "example_boxes":

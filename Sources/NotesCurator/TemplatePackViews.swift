@@ -11,9 +11,37 @@ struct LatexTemplateImportSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Import LaTeX Template")
                     .font(.title2.bold())
-                Text("Paste a supported LaTeX template subset to extract palette, box styles, and heading structure into a reviewable in-app template.")
+                Text("Import a full LaTeX project folder / zip / main `.tex`, or paste a supported LaTeX subset to build a reviewable in-app template.")
                     .foregroundStyle(.secondary)
             }
+
+            HStack(spacing: 12) {
+                Button("Choose Project Folder / Zip / .tex") {
+                    Task { @MainActor in
+                        if let url = await presentOpenPanelURL(configure: { panel in
+                            panel.canChooseDirectories = true
+                            panel.canChooseFiles = true
+                            panel.allowsMultipleSelection = false
+                            panel.resolvesAliases = true
+                        }) {
+                            do {
+                                try model.beginLatexTemplateProjectImport(url)
+                                onDismiss()
+                            } catch {
+                                model.present(error: error)
+                            }
+                        }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+
+                Text("Full project import keeps your original `.tex` layout and assets as the template source of truth.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("Or paste a supported single-file source below")
+                .font(.headline)
 
             TextEditor(text: $latexSource)
                 .padding(16)
@@ -94,7 +122,7 @@ struct TemplateImportReviewView: View {
             .pickerStyle(.segmented)
 
             HStack(spacing: 12) {
-                pill("Import LaTeX Template")
+                pill(review.latexProjectSource == nil ? "Import LaTeX Template" : "Project-backed Template")
                 pill("Adjust Type")
                 pill("Use Template")
             }

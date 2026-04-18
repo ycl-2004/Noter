@@ -76,9 +76,18 @@
 
 - 导入后的 pack-backed template 不会在编辑时丢失 pack data。
 - imported template 的 live preview、preview、export 会尽量保持一致。
-- AI 能理解更细的内容桶，例如 summary / key / warning / code / result / exam / explanation / example。
+- AI 能理解更细的内容桶，例如 summary / key / meta / warning / code / result / exam / checklist / question / explanation / example。
 - imported template 的 section 顺序会更贴近原始 LaTeX box 结构。
 - 空 box 默认隐藏，有内容才渲染。
+
+当前内建内容模板也开始统一到同一套 pack schema：
+
+- 主要模板包括 `Quick Summary`、`Structured Notes`、`Lecture Notes`、`Study Guide`、`Technical Deep Dive`、`Formal Document`
+- 模板尽量共享同一批内容桶，例如 `summary_boxes`、`key_boxes`、`sections`、`explanation_boxes`、`warning_boxes`、`code_boxes`
+- `Formal Document` 额外强调 metadata、executive summary、目录、review questions、recommendations 这类正式交付结构
+- `Study Guide` 额外强调 question / checklist 这类复习导向 box
+- 每个内建模板现在也都有各自的 native sample document，preview 不再共用旧的 study-guide 数据，而是直接展示该模板自己应该出现的 box 结构与标题
+- built-in preview、live preview、export 会优先走同一条 pack-backed / LaTeX-backed 原生渲染链路，而不是退回旧的 markdown fallback
 
 ### 6. 预览与导出
 
@@ -96,6 +105,7 @@
 - 支持真正分页，而不是把超长视图直接硬打印成一页。
 - pack-backed / imported LaTeX template 会尽量沿用当前预览中的 box/card 风格。
 - 预览与导出的版式一致性已经明显提升。
+- 模板库里的默认 preview 现在会用模板专属 sample blocks 去验证样式和结构，所以 preview 看到的内容更接近真实导出结果。
 
 ### 7. Workspace 与编辑体验
 

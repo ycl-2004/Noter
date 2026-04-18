@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import PDFKit
 import SwiftUI
 
 @MainActor
@@ -2470,6 +2471,9 @@ private struct ExportPageView: View {
     var body: some View {
         if let version = model.currentVersion {
             let previewVersion = version.previewVersion(visualTemplateName: selectedVisualTemplate)
+            let availableFormats = previewVersion.latexProjectForExport() == nil
+                ? ExportFormat.allCases.filter { $0 != .latex }
+                : ExportFormat.allCases
             ReviewSurfaceScaffold(
                 title: "Export",
                 subtitle: "Confirm the exact output format and destination before saving the document.",
@@ -2488,7 +2492,9 @@ private struct ExportPageView: View {
                     exportToFolder()
                 },
                 document: {
-                    if selectedFormat.usesSourcePreview {
+                    if selectedFormat == .pdf, previewVersion.latexProjectForExport() != nil {
+                        LatexCompiledPDFPreview(version: previewVersion)
+                    } else if selectedFormat.usesSourcePreview {
                         Text(exporter.previewText(draft: previewVersion, format: selectedFormat))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .font(.system(.body, design: .monospaced))
@@ -2516,7 +2522,7 @@ private struct ExportPageView: View {
                         startsExpanded: exportInspectorState(for: "Format")
                     ) {
                         Picker("Format", selection: $selectedFormat) {
-                            ForEach(ExportFormat.allCases, id: \.self) { option in
+                            ForEach(availableFormats, id: \.self) { option in
                                 Text(option.displayName).tag(option)
                             }
                         }
@@ -2553,8 +2559,18 @@ private struct ExportPageView: View {
                         startsExpanded: exportInspectorState(for: "Export Readiness")
                     ) {
                         VStack(alignment: .leading, spacing: 10) {
-                            Label("Preview and export stay aligned through the same rendering layer.", systemImage: "checkmark.seal")
-                            Label("Current draft supports Markdown, TXT, HTML, RTF, DOCX, and PDF output.", systemImage: "doc.richtext")
+                            Label(
+                                previewVersion.latexProjectForExport() == nil
+                                    ? "Preview and export stay aligned through the same rendering layer."
+                                    : "This template can compile through your local LaTeX toolchain for preview and PDF export.",
+                                systemImage: "checkmark.seal"
+                            )
+                            Label(
+                                previewVersion.latexProjectForExport() == nil
+                                    ? "Current draft supports Markdown, TXT, HTML, RTF, DOCX, and PDF output."
+                                    : "Current draft supports Markdown, TXT, HTML, RTF, DOCX, PDF, and full LaTeX project export.",
+                                systemImage: "doc.richtext"
+                            )
                             Label("DOCX works well with Microsoft Word and Google Docs import.", systemImage: "globe")
                         }
                         .foregroundStyle(.secondary)
@@ -2595,10 +2611,18 @@ private struct ExportPageView: View {
             )
             .onAppear {
                 selectedFormat = model.preferences.defaultExportFormat
+                if selectedFormat == .latex, previewVersion.latexProjectForExport() == nil {
+                    selectedFormat = .pdf
+                }
                 selectedVisualTemplate = version.structuredDoc.exportMetadata.visualTemplateName
             }
             .onChange(of: version.structuredDoc.exportMetadata.visualTemplateName) { _, newValue in
                 selectedVisualTemplate = newValue
+            }
+            .onChange(of: previewVersion.latexProjectForExport() != nil) { _, supportsLatex in
+                if supportsLatex == false, selectedFormat == .latex {
+                    selectedFormat = .pdf
+                }
             }
             .onChange(of: selectedVisualTemplate) { _, newValue in
                 guard model.currentVersion?.structuredDoc.exportMetadata.visualTemplateName != newValue else { return }
@@ -2637,6 +2661,98 @@ private struct ExportPageView: View {
                 }
             }
         }
+    }
+}
+
+private struct LatexCompiledPDFPreview: View {
+    let version: DraftVersion
+
+    @State private var pdfURL: URL?
+    @State private var isCompiling = false
+    @State private var previewError: String?
+
+    private let exporter = ExportCoordinator()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Compiled LaTeX Preview")
+                    .font(.headline)
+                Spacer()
+                Button("Refresh Preview") {
+                    refreshPreview()
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if let pdfURL {
+                PDFPreviewSurface(url: pdfURL)
+                    .frame(maxWidth: .infinity, minHeight: 640, maxHeight: .infinity, alignment: .topLeading)
+                    .background(Color.white.opacity(0.96))
+                    .clipShape(RoundedRectangle(cornerRadius: 28))
+            } else if isCompiling {
+                ProgressView("Compiling LaTeX preview...")
+                    .frame(maxWidth: .infinity, minHeight: 400, alignment: .center)
+            } else if let previewError {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(previewError, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text("Install or expose `xelatex` / `latexmk` on this Mac if you want the preview to match the final compiled PDF.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 240, alignment: .topLeading)
+                .padding(24)
+                .background(Color.white.opacity(0.96))
+                .clipShape(RoundedRectangle(cornerRadius: 28))
+            }
+        }
+        .task(id: previewCacheKey) {
+            refreshPreview()
+        }
+    }
+
+    private var previewCacheKey: String {
+        [
+            version.id.uuidString,
+            version.editorDocument,
+            version.structuredDoc.title,
+            version.structuredDoc.summary
+        ].joined(separator: "|")
+    }
+
+    private func refreshPreview() {
+        isCompiling = true
+        previewError = nil
+        Task { @MainActor in
+            do {
+                let directory = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("noter-latex-preview-\(version.id.uuidString)", isDirectory: true)
+                try? FileManager.default.removeItem(at: directory)
+                let compiledURL = try exporter.export(draft: version, format: .pdf, to: directory)
+                pdfURL = compiledURL
+            } catch {
+                pdfURL = nil
+                previewError = error.localizedDescription
+            }
+            isCompiling = false
+        }
+    }
+}
+
+private struct PDFPreviewSurface: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.displaysPageBreaks = true
+        return view
+    }
+
+    func updateNSView(_ nsView: PDFView, context: Context) {
+        nsView.document = PDFDocument(url: url)
     }
 }
 
@@ -3320,6 +3436,25 @@ private struct TemplateEditorSheet: View {
                 config: config
             )
         case .latex:
+            if let projectSource = currentLatexProjectSource {
+                var pack = (try? template.templatePack()) ?? TemplatePackDefaults.pack(
+                    for: .technicalNote,
+                    named: resolvedName
+                )
+                pack.identity.name = resolvedName
+                pack.identity.description = subtitle
+                return Template.latexProject(
+                    projectSource,
+                    id: template.id,
+                    scope: template.scope,
+                    name: resolvedName,
+                    subtitle: subtitle,
+                    templateDescription: templateDescription,
+                    goalType: template.configuredGoalType,
+                    pack: pack
+                )
+            }
+
             let decoded = try TemplatePackLatexCodec.decode(
                 source: templateBody,
                 fallbackGoal: template.configuredGoalType
@@ -3370,8 +3505,14 @@ private struct TemplateEditorSheet: View {
         case .markdown:
             return "Template source is valid."
         case .latex:
-            return "LaTeX template source is valid."
+            return template.latexProjectSource() == nil
+                ? "LaTeX template source is valid."
+                : "LaTeX project source is ready. The full `.tex` file remains the source of truth."
         }
+    }
+
+    private var currentLatexProjectSource: LatexProjectSource? {
+        template.latexProjectSource()?.updatingMainFile(text: templateBody)
     }
 
     private var workingTemplate: Template? {
@@ -3396,6 +3537,7 @@ private struct TemplateEditorSheet: View {
         document.exportMetadata.contentTemplateID = workingTemplate.id
         document.exportMetadata.contentTemplateName = workingTemplate.name
         document.exportMetadata.contentTemplatePackData = workingTemplate.storedPackData
+        document.exportMetadata.contentTemplateLatexProjectData = workingTemplate.storedLatexProjectData
         document.exportMetadata.renderedContentTemplateID = workingTemplate.id
         let editorDocument: String
         if workingTemplate.storedPackData != nil, let pack = try? workingTemplate.templatePack() {
@@ -3422,6 +3564,17 @@ private struct TemplateEditorSheet: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
+                    if currentLatexProjectSource != nil {
+                        Button("Open In TeX Editor") {
+                            openCurrentLatexProjectInExternalEditor()
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button("Reveal Project Folder") {
+                            revealCurrentLatexProjectFolder()
+                        }
+                        .buttonStyle(.bordered)
+                    }
                     Button("Close") {
                         onDismiss()
                     }
@@ -3513,6 +3666,36 @@ private struct TemplateEditorSheet: View {
         }
         .frame(minWidth: 1100, minHeight: 700, idealHeight: 760, alignment: .topLeading)
         .background(Color(NSColor.windowBackgroundColor))
+    }
+
+    private func materializedLatexProjectDirectory() throws -> URL {
+        guard let project = currentLatexProjectSource else {
+            throw LatexProjectError.unsupportedProject("This template does not currently have a full LaTeX project attached.")
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("noter-latex-authoring-\(template.id.uuidString)", isDirectory: true)
+        try? FileManager.default.removeItem(at: directory)
+        _ = try project.writing(to: directory, renderedMainFile: templateBody)
+        return directory
+    }
+
+    private func openCurrentLatexProjectInExternalEditor() {
+        do {
+            let directory = try materializedLatexProjectDirectory()
+            let mainFileURL = directory.appendingPathComponent(currentLatexProjectSource?.mainFilePath ?? "main.tex")
+            NSWorkspace.shared.open(mainFileURL)
+        } catch {
+            NSApp.presentError(error)
+        }
+    }
+
+    private func revealCurrentLatexProjectFolder() {
+        do {
+            let directory = try materializedLatexProjectDirectory()
+            NSWorkspace.shared.activateFileViewerSelecting([directory])
+        } catch {
+            NSApp.presentError(error)
+        }
     }
 }
 
@@ -4673,7 +4856,7 @@ private extension GoalType {
 }
 
 @MainActor
-private func presentOpenPanelURL(configure: (NSOpenPanel) -> Void) async -> URL? {
+func presentOpenPanelURL(configure: (NSOpenPanel) -> Void) async -> URL? {
     let panel = NSOpenPanel()
     configure(panel)
     return await withCheckedContinuation { continuation in
@@ -4689,7 +4872,7 @@ private func presentOpenPanelURL(configure: (NSOpenPanel) -> Void) async -> URL?
 }
 
 @MainActor
-private func presentOpenPanelURLs(configure: (NSOpenPanel) -> Void) async -> [URL] {
+func presentOpenPanelURLs(configure: (NSOpenPanel) -> Void) async -> [URL] {
     let panel = NSOpenPanel()
     configure(panel)
     return await withCheckedContinuation { continuation in
@@ -5251,6 +5434,7 @@ private enum SampleTemplateFactory {
         structured.exportMetadata.contentTemplateID = contentTemplate.id
         structured.exportMetadata.contentTemplateName = contentTemplate.name
         structured.exportMetadata.contentTemplatePackData = contentTemplate.storedPackData
+        structured.exportMetadata.contentTemplateLatexProjectData = contentTemplate.storedLatexProjectData
         structured.exportMetadata.renderedContentTemplateID = contentTemplate.id
         structured.exportMetadata.visualTemplateName = visualTemplateName
         structured.exportMetadata.preferredFormat = .pdf

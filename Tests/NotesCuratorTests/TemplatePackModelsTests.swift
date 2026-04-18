@@ -20,21 +20,23 @@ struct TemplatePackModelsTests {
         let pack = TemplatePackDefaults.pack(for: .formalBrief, named: "Formal Document")
 
         #expect(pack.behavior.followsVisualTheme)
-        #expect(pack.layout.blocks.map(\.fieldBinding).contains("overview"))
+        #expect(pack.layout.blocks.map(\.fieldBinding).contains("meta_boxes"))
+        #expect(pack.layout.blocks.map(\.fieldBinding).contains("summary_boxes"))
         #expect(pack.layout.blocks.map(\.fieldBinding).contains("sections"))
         #expect(pack.layout.blocks.map(\.fieldBinding).contains("result_boxes"))
-        #expect(pack.layout.blocks.map(\.fieldBinding).contains("explanation_boxes"))
+        #expect(pack.layout.blocks.map(\.fieldBinding).contains("question_boxes"))
     }
 
     @Test
     func summaryAndStudyGuidePresetsExposeDetailedBoxBuckets() {
-        let summaryPack = TemplatePackDefaults.pack(for: .technicalNote, named: "Summary")
+        let summaryPack = TemplatePackDefaults.pack(for: .technicalNote, named: "Quick Summary")
         let studyPack = TemplatePackDefaults.pack(for: .technicalNote, named: "Study Guide")
         let deepDivePack = TemplatePackDefaults.pack(for: .technicalNote, named: "Technical Deep Dive")
 
         #expect(summaryPack.layout.blocks.map(\.fieldBinding).contains("code_boxes"))
         #expect(summaryPack.layout.blocks.map(\.fieldBinding).contains("warning_boxes"))
-        #expect(studyPack.layout.blocks.map(\.fieldBinding).contains("exam_boxes"))
+        #expect(studyPack.layout.blocks.map(\.fieldBinding).contains("question_boxes"))
+        #expect(studyPack.layout.blocks.map(\.fieldBinding).contains("checklist_boxes"))
         #expect(studyPack.layout.blocks.map(\.fieldBinding).contains("result_boxes"))
         #expect(deepDivePack.layout.blocks.map(\.fieldBinding).contains("explanation_boxes"))
         #expect(deepDivePack.layout.blocks.map(\.fieldBinding).contains("example_boxes"))
@@ -48,7 +50,7 @@ struct TemplatePackModelsTests {
 
         #expect(pack.identity.name == "Study Guide")
         #expect(pack.schema.fields.contains(where: { $0.key == "summary_boxes" }))
-        #expect(pack.layout.blocks.contains(where: { $0.fieldBinding == "exam_boxes" }))
+        #expect(pack.layout.blocks.contains(where: { $0.fieldBinding == "question_boxes" }))
     }
 
     @Test

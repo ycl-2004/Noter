@@ -766,6 +766,7 @@ struct DocumentProcessingPipeline: Sendable {
                 contentTemplateID: resolvedTemplate?.id,
                 contentTemplateName: resolvedTemplate?.name ?? contentTemplateName,
                 contentTemplatePackData: resolvedTemplate?.storedPackData,
+                contentTemplateLatexProjectData: resolvedTemplate?.storedLatexProjectData,
                 renderedContentTemplateID: resolvedTemplate?.id,
                 visualTemplateID: resolvedVisualTemplate?.id,
                 visualTemplateName: resolvedVisualTemplate?.name ?? visualTemplateName,

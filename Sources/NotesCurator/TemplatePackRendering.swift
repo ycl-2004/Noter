@@ -231,6 +231,8 @@ enum TemplatePackRenderer {
             return .boxes(templateBoxes(for: .summary, document: document))
         case "key_boxes":
             return .boxes(templateBoxes(for: .key, document: document))
+        case "meta_boxes":
+            return .boxes(templateBoxes(for: .meta, document: document))
         case "warning_boxes":
             return .boxes(templateBoxes(for: .warning, document: document))
         case "code_boxes":
@@ -239,6 +241,10 @@ enum TemplatePackRenderer {
             return .boxes(templateBoxes(for: .result, document: document))
         case "exam_boxes":
             return .boxes(templateBoxes(for: .exam, document: document))
+        case "checklist_boxes":
+            return .boxes(templateBoxes(for: .checklist, document: document))
+        case "question_boxes":
+            return .boxes(templateBoxes(for: .question, document: document))
         case "explanation_boxes":
             return .boxes(templateBoxes(for: .explanation, document: document))
         case "example_boxes":
@@ -277,6 +283,8 @@ enum TemplatePackRenderer {
             let items = document.keyPoints.map(\.trimmed).filter { !$0.isEmpty }
             guard !items.isEmpty else { return [] }
             return [StructuredTemplateBox(kind: .key, title: "Key Points", body: "", items: items)]
+        case .meta:
+            return []
         case .warning:
             return document.callouts
                 .filter { $0.kind == .warning }
@@ -292,6 +300,17 @@ enum TemplatePackRenderer {
             let items = document.reviewQuestions.map(\.trimmed).filter { !$0.isEmpty }
             guard !items.isEmpty else { return [] }
             return [StructuredTemplateBox(kind: .exam, title: "Review Questions", body: "", items: items)]
+        case .checklist:
+            let items = document.actionItems.map(\.trimmed).filter { !$0.isEmpty }
+            guard !items.isEmpty else { return [] }
+            return [StructuredTemplateBox(kind: .checklist, title: "Checklist", body: "", items: items)]
+        case .question:
+            var seen: Set<String> = []
+            let items = (document.cueQuestions + document.reviewQuestions)
+                .map(\.trimmed)
+                .filter { !$0.isEmpty && seen.insert($0).inserted }
+            guard !items.isEmpty else { return [] }
+            return [StructuredTemplateBox(kind: .question, title: "Questions", body: "", items: items)]
         case .explanation:
             return document.callouts
                 .filter { $0.kind == .note }

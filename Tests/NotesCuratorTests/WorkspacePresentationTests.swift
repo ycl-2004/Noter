@@ -23,17 +23,21 @@ struct WorkspacePresentationTests {
     @Test
     func templateLibraryStructuralPreviewDifferentiatesCoreContentPresets() throws {
         let formal = try #require(Template.builtinContentTemplate(named: "Formal Document", goalType: .formalDocument))
+        let lecture = try #require(Template.builtinContentTemplate(named: "Lecture Notes", goalType: .structuredNotes))
         let studyGuide = try #require(Template.builtinContentTemplate(named: "Study Guide", goalType: .structuredNotes))
         let technical = try #require(Template.builtinContentTemplate(named: "Technical Deep Dive", goalType: .formalDocument))
 
         let formalPreview = TemplateLibraryPresentation.structuralPreview(for: formal)
+        let lecturePreview = TemplateLibraryPresentation.structuralPreview(for: lecture)
         let studyGuidePreview = TemplateLibraryPresentation.structuralPreview(for: studyGuide)
         let technicalPreview = TemplateLibraryPresentation.structuralPreview(for: technical)
 
         #expect(formalPreview.rows.contains { $0.kind == .calloutBox })
+        #expect(lecturePreview.rows.contains { $0.kind == .calloutBox })
         #expect(studyGuidePreview.rows.contains { $0.kind == .examBox })
         #expect(technicalPreview.rows.contains { $0.kind == .codeBox })
         #expect(formalPreview != studyGuidePreview)
+        #expect(lecturePreview != studyGuidePreview)
         #expect(studyGuidePreview != technicalPreview)
     }
 

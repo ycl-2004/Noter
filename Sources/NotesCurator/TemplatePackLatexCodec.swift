@@ -225,10 +225,11 @@ enum TemplatePackLatexCodec {
             switch binding {
             case "summary_boxes": return .summary
             case "key_boxes": return .key
+            case "meta_boxes": return .standard
             case "warning_boxes": return .warning
-            case "exam_boxes": return .exam
+            case "exam_boxes", "question_boxes": return .exam
+            case "checklist_boxes", "result_boxes": return .result
             case "code_boxes": return .code
-            case "result_boxes": return .result
             default: return .summary
             }
         }

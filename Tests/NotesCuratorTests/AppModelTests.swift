@@ -5,7 +5,7 @@ import Testing
 @MainActor
 struct AppModelTests {
     @Test
-    func primarySystemContentTemplatesUsePackBackedDefaults() async throws {
+    func primarySystemContentTemplatesUseRealLatexProjectDefaults() async throws {
         let repository = MemoryRepository()
         let pipeline = DocumentProcessingPipeline(
             parser: StubParser(parsed: ParsedDocument(text: "", sources: [], images: [])),
@@ -15,7 +15,7 @@ struct AppModelTests {
         let model = NotesCuratorAppModel(repository: repository, pipeline: pipeline)
         try await model.load()
 
-        let summary = try #require(model.contentTemplates.first(where: { $0.name == "Summary" }))
+        let summary = try #require(model.contentTemplates.first(where: { $0.name == "Quick Summary" }))
         let structured = try #require(model.contentTemplates.first(where: { $0.name == "Structured Notes" }))
         let lecture = try #require(model.contentTemplates.first(where: { $0.name == "Lecture Notes" }))
         let studyGuide = try #require(model.contentTemplates.first(where: { $0.name == "Study Guide" }))
@@ -28,8 +28,20 @@ struct AppModelTests {
         #expect(studyGuide.storedPackData != nil)
         #expect(deepDive.storedPackData != nil)
         #expect(formal.storedPackData != nil)
-        #expect(summary.storedLatexSource?.contains("\\documentclass") == true)
-        #expect(formal.storedLatexSource?.contains("% notescurator.block:") == true)
+        #expect(summary.storedLatexProjectData != nil)
+        #expect(structured.storedLatexProjectData != nil)
+        #expect(lecture.storedLatexProjectData != nil)
+        #expect(studyGuide.storedLatexProjectData != nil)
+        #expect(deepDive.storedLatexProjectData != nil)
+        #expect(formal.storedLatexProjectData != nil)
+        #expect(summary.format == .latexProject)
+        #expect(formal.format == .latexProject)
+        #expect(summary.storedLatexSource?.contains("\\documentclass[11pt]{article}") == true)
+        #expect(summary.storedLatexSource?.contains("% notescurator.block:") == false)
+        #expect(summary.storedLatexSource?.contains("% notescurator.field:") == false)
+        #expect(formal.storedLatexSource?.contains("\\usepackage[UTF8]{ctex}") == true)
+        #expect(formal.storedLatexSource?.contains("% notescurator.block:") == false)
+        #expect(formal.storedLatexSource?.contains("% notescurator.field:") == false)
         #expect(summary.body.isEmpty)
         #expect(structured.body.isEmpty)
         #expect(lecture.body.isEmpty)
@@ -76,6 +88,40 @@ struct AppModelTests {
         #expect(reloadedVisibleTemplate.id == override.id)
         #expect(reloadedModel.templates.contains(where: { $0.scope == .system && $0.name == systemTemplate.name }))
         #expect(reloadedModel.templates.contains(where: { $0.scope == .user && $0.name == systemTemplate.name }))
+    }
+
+    @Test
+    func appModelPrefersSystemLatexTemplateOverLegacyBuiltinContentShadowOnLoad() async throws {
+        let repository = MemoryRepository()
+        let legacyShadow = Template.packBacked(
+            TemplatePackDefaults.pack(
+                for: .formalBrief,
+                named: "Formal Document",
+                description: "Polished stakeholder-ready document"
+            ),
+            scope: .user
+        )
+        repository.snapshot.templates = [legacyShadow]
+
+        let model = NotesCuratorAppModel(
+            repository: repository,
+            pipeline: DocumentProcessingPipeline(
+                parser: StubParser(parsed: ParsedDocument(text: "", sources: [], images: [])),
+                primaryProvider: StubProvider(isHealthy: true, response: .empty)
+            )
+        )
+
+        try await model.load()
+
+        #expect(repository.snapshot.templates.contains(where: { $0.id == legacyShadow.id }) == true)
+        #expect(model.templates.filter { $0.name == "Formal Document" }.count == 2)
+
+        let visibleFormal = try #require(model.contentTemplates.first(where: { $0.name == "Formal Document" }))
+        #expect(visibleFormal.scope == .system)
+        #expect(visibleFormal.format == .latexProject)
+        #expect(visibleFormal.storedLatexProjectData != nil)
+        #expect(visibleFormal.storedLatexSource?.contains("\\usepackage[UTF8]{ctex}") == true)
+        #expect(visibleFormal.storedLatexSource?.hasPrefix("% NotesCurator LaTeX Template v1") == false)
     }
 
     @Test

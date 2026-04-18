@@ -174,6 +174,7 @@ enum ExportFormat: String, Codable, CaseIterable, Equatable, Sendable {
     case rtf
     case docx
     case pdf
+    case latex
 
     var displayName: String {
         switch self {
@@ -183,6 +184,7 @@ enum ExportFormat: String, Codable, CaseIterable, Equatable, Sendable {
         case .rtf: return "RTF"
         case .docx: return "DOCX"
         case .pdf: return "PDF"
+        case .latex: return "LaTeX Project"
         }
     }
 
@@ -194,6 +196,7 @@ enum ExportFormat: String, Codable, CaseIterable, Equatable, Sendable {
         case .rtf: return "RTF"
         case .docx: return "DOCX"
         case .pdf: return "PDF"
+        case .latex: return "TEX"
         }
     }
 
@@ -211,12 +214,14 @@ enum ExportFormat: String, Codable, CaseIterable, Equatable, Sendable {
             return "Microsoft Word and Google Docs import"
         case .pdf:
             return "Fixed-layout sharing and printing"
+        case .latex:
+            return "Full LaTeX project for local editors and Overleaf-style workflows"
         }
     }
 
     var usesSourcePreview: Bool {
         switch self {
-        case .markdown, .txt:
+        case .markdown, .txt, .latex:
             return true
         case .html, .rtf, .docx, .pdf:
             return false
@@ -272,10 +277,13 @@ struct StructuredCallout: Codable, Equatable, Sendable {
 enum StructuredTemplateBoxKind: String, Codable, CaseIterable, Equatable, Sendable {
     case summary
     case key
+    case meta
     case warning
     case code
     case result
     case exam
+    case checklist
+    case question
     case explanation
     case example
 }
@@ -342,12 +350,14 @@ struct ImageSlot: Codable, Equatable, Sendable {
 enum TemplateFormat: String, Codable, Equatable, Sendable {
     case legacyConfig
     case markdownTemplate
+    case latexProject
 }
 
 struct ExportMetadata: Codable, Equatable, Sendable {
     var contentTemplateID: UUID?
     var contentTemplateName: String
     var contentTemplatePackData: Data?
+    var contentTemplateLatexProjectData: Data?
     var renderedContentTemplateID: UUID?
     var visualTemplateID: UUID?
     var visualTemplateName: String
@@ -357,6 +367,7 @@ struct ExportMetadata: Codable, Equatable, Sendable {
         contentTemplateID: UUID? = nil,
         contentTemplateName: String,
         contentTemplatePackData: Data? = nil,
+        contentTemplateLatexProjectData: Data? = nil,
         renderedContentTemplateID: UUID? = nil,
         visualTemplateID: UUID? = nil,
         visualTemplateName: String,
@@ -365,6 +376,7 @@ struct ExportMetadata: Codable, Equatable, Sendable {
         self.contentTemplateID = contentTemplateID
         self.contentTemplateName = contentTemplateName
         self.contentTemplatePackData = contentTemplatePackData
+        self.contentTemplateLatexProjectData = contentTemplateLatexProjectData
         self.renderedContentTemplateID = renderedContentTemplateID
         self.visualTemplateID = visualTemplateID
         self.visualTemplateName = visualTemplateName
@@ -375,6 +387,7 @@ struct ExportMetadata: Codable, Equatable, Sendable {
         case contentTemplateID
         case contentTemplateName
         case contentTemplatePackData
+        case contentTemplateLatexProjectData
         case renderedContentTemplateID
         case visualTemplateID
         case visualTemplateName
@@ -386,6 +399,7 @@ struct ExportMetadata: Codable, Equatable, Sendable {
         contentTemplateID = try container.decodeIfPresent(UUID.self, forKey: .contentTemplateID)
         contentTemplateName = try container.decode(String.self, forKey: .contentTemplateName)
         contentTemplatePackData = try container.decodeIfPresent(Data.self, forKey: .contentTemplatePackData)
+        contentTemplateLatexProjectData = try container.decodeIfPresent(Data.self, forKey: .contentTemplateLatexProjectData)
         renderedContentTemplateID = try container.decodeIfPresent(UUID.self, forKey: .renderedContentTemplateID)
         visualTemplateID = try container.decodeIfPresent(UUID.self, forKey: .visualTemplateID)
         visualTemplateName = try container.decode(String.self, forKey: .visualTemplateName)
@@ -755,6 +769,7 @@ struct Template: Identifiable, Codable, Equatable, Sendable {
     var config: [String: String]
     var storedPackData: Data?
     var storedLatexSource: String?
+    var storedLatexProjectData: Data?
 
     init(
         id: UUID = UUID(),
@@ -767,7 +782,8 @@ struct Template: Identifiable, Codable, Equatable, Sendable {
         body: String = "",
         config: [String: String],
         storedPackData: Data? = nil,
-        storedLatexSource: String? = nil
+        storedLatexSource: String? = nil,
+        storedLatexProjectData: Data? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -780,6 +796,7 @@ struct Template: Identifiable, Codable, Equatable, Sendable {
         self.config = config
         self.storedPackData = storedPackData
         self.storedLatexSource = storedLatexSource
+        self.storedLatexProjectData = storedLatexProjectData
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -794,6 +811,7 @@ struct Template: Identifiable, Codable, Equatable, Sendable {
         case config
         case storedPackData
         case storedLatexSource
+        case storedLatexProjectData
     }
 
     init(from decoder: any Decoder) throws {
@@ -809,6 +827,7 @@ struct Template: Identifiable, Codable, Equatable, Sendable {
         config = try container.decodeIfPresent([String: String].self, forKey: .config) ?? [:]
         storedPackData = try container.decodeIfPresent(Data.self, forKey: .storedPackData)
         storedLatexSource = try container.decodeIfPresent(String.self, forKey: .storedLatexSource)
+        storedLatexProjectData = try container.decodeIfPresent(Data.self, forKey: .storedLatexProjectData)
     }
 }
 

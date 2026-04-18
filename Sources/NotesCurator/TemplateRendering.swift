@@ -450,7 +450,9 @@ extension Template {
     }
 
     static func builtinContentTemplate(named name: String, goalType: GoalType? = nil) -> Template? {
-        builtinContentTemplates.first { $0.name == name } ?? fallbackBuiltinTemplate(goalType: goalType, name: name)
+        builtinContentTemplates.first { $0.name == name }
+            ?? legacyBuiltinTemplateAlias(named: name)
+            ?? fallbackBuiltinTemplate(goalType: goalType, name: name)
     }
 
     static func starterContentTemplate(name: String = "New Template") -> Template {
@@ -510,31 +512,51 @@ extension Template {
     }
 
     var defaultSampleDataKey: String {
+        switch name.lowercased() {
+        case "quick summary", "summary":
+            return "quick_summary"
+        case "structured notes":
+            return "structured_notes"
+        case "lecture notes":
+            return "lecture_notes"
+        case "study guide":
+            return "study_guide"
+        case "technical deep dive":
+            return "technical_deep_dive"
+        case "formal document":
+            return "formal_brief"
+        default:
+            break
+        }
+
         switch configuredGoalType {
         case .actionItems:
             return "action_plan"
         case .formalDocument:
             return "formal_brief"
-        case .summary, .structuredNotes:
-            return "study_guide"
+        case .summary:
+            return "quick_summary"
+        case .structuredNotes:
+            return "structured_notes"
         }
     }
 
-    fileprivate static let summaryTemplate = Template.packBacked(
-        TemplatePackDefaults.pack(
-            for: .technicalNote,
-            named: "Summary",
-            description: "Fast condensation"
-        ),
-        scope: .system,
+    fileprivate static let summaryTemplate = BuiltinLatexProjects.systemTemplate(
+        name: "Quick Summary",
+        subtitle: "Fast condensation",
+        templateDescription: "Quick, high-signal summary template with boxed takeaways, formulas, and traps.",
         goalType: .summary,
-        templateDescription: "Quick, high-signal summary template with boxed takeaways, formulas, and traps."
+        pack: TemplatePackDefaults.pack(
+            for: .technicalNote,
+            named: "Quick Summary",
+            description: "Fast condensation"
+        )
     )
 
     fileprivate static let legacySummaryTemplate = Template(
         kind: .content,
         scope: .system,
-        name: "Summary",
+        name: "Quick Summary",
         subtitle: "Fast condensation",
         templateDescription: "Condenses source material into the shortest still-useful briefing.",
         format: .markdownTemplate,
@@ -543,7 +565,7 @@ extension Template {
         goal: summary
         generation_hint: |
           Keep the document compact and avoid over-expanding secondary sections.
-        sample_data: study_guide
+        sample_data: quick_summary
         ---
         # {{title}}
 
@@ -570,31 +592,50 @@ extension Template {
         ]
     )
 
-    fileprivate static let structuredNotesTemplate = Template.packBacked(
-        TemplatePackDefaults.pack(
+    private static func legacyBuiltinTemplateAlias(named name: String) -> Template? {
+        switch name {
+        case "Summary":
+            return summaryTemplate.renamed(to: name)
+        default:
+            return nil
+        }
+    }
+
+    fileprivate static let structuredNotesTemplate = BuiltinLatexProjects.systemTemplate(
+        name: "Structured Notes",
+        subtitle: "Balanced recall support",
+        templateDescription: "Organizes core ideas, study cues, and body sections in a balanced note format.",
+        goalType: .structuredNotes,
+        pack: TemplatePackDefaults.pack(
             for: .technicalNote,
             named: "Structured Notes",
             description: "Balanced recall support"
-        ),
-        scope: .system
+        )
     )
 
-    fileprivate static let lectureNotesTemplate = Template.packBacked(
-        TemplatePackDefaults.pack(
+    fileprivate static let lectureNotesTemplate = BuiltinLatexProjects.systemTemplate(
+        name: "Lecture Notes",
+        subtitle: "Teaching-first structure",
+        templateDescription: "Preserves the lesson flow first, then layers review prompts and recap support around it.",
+        goalType: .structuredNotes,
+        pack: TemplatePackDefaults.pack(
             for: .technicalNote,
             named: "Lecture Notes",
             description: "Teaching-first structure"
-        ),
-        scope: .system
+        )
     )
 
-    fileprivate static let formalDocumentTemplate = Template.packBacked(
-        TemplatePackDefaults.pack(
+    fileprivate static let formalDocumentTemplate = BuiltinLatexProjects.systemTemplate(
+        name: "Formal Document",
+        subtitle: "Polished stakeholder-ready document",
+        templateDescription: "Polished stakeholder-ready document",
+        goalType: .formalDocument,
+        pack: TemplatePackDefaults.pack(
             for: .formalBrief,
             named: "Formal Document",
             description: "Polished stakeholder-ready document"
         ),
-        scope: .system
+        customProjectSource: BuiltinLatexProjects.formalDocumentProjectSource
     )
 
     fileprivate static let legacyStructuredNotesTemplate = Template(
@@ -609,7 +650,7 @@ extension Template {
         goal: structuredNotes
         generation_hint: |
           Balance quick recall aids with readable explanatory sections.
-        sample_data: study_guide
+        sample_data: structured_notes
         ---
         # {{title}}
 
@@ -664,7 +705,7 @@ extension Template {
         goal: structuredNotes
         generation_hint: |
           Preserve the teaching flow and keep sections expansive enough to read top to bottom.
-        sample_data: study_guide
+        sample_data: lecture_notes
         ---
         # {{title}}
 
@@ -694,15 +735,16 @@ extension Template {
         ]
     )
 
-    fileprivate static let studyGuideTemplate = Template.packBacked(
-        TemplatePackDefaults.pack(
+    fileprivate static let studyGuideTemplate = BuiltinLatexProjects.systemTemplate(
+        name: "Study Guide",
+        subtitle: "Review-first format",
+        templateDescription: "Exam-oriented study guide with concepts, formulas, traps, practice prompts, and revision checklists.",
+        goalType: .structuredNotes,
+        pack: TemplatePackDefaults.pack(
             for: .technicalNote,
             named: "Study Guide",
             description: "Review-first format"
-        ),
-        scope: .system,
-        goalType: .structuredNotes,
-        templateDescription: "Exam-oriented study guide with concepts, formulas, traps, practice prompts, and revision checklists."
+        )
     )
 
     fileprivate static let legacyStudyGuideTemplate = Template(
@@ -761,15 +803,16 @@ extension Template {
         ]
     )
 
-    fileprivate static let technicalDeepDiveTemplate = Template.packBacked(
-        TemplatePackDefaults.pack(
+    fileprivate static let technicalDeepDiveTemplate = BuiltinLatexProjects.systemTemplate(
+        name: "Technical Deep Dive",
+        subtitle: "Dense technical walkthrough",
+        templateDescription: "Detailed technical walkthrough with system boxes, implementation notes, pitfalls, edge cases, and final takeaways.",
+        goalType: .formalDocument,
+        pack: TemplatePackDefaults.pack(
             for: .technicalNote,
             named: "Technical Deep Dive",
             description: "Dense technical walkthrough"
-        ),
-        scope: .system,
-        goalType: .formalDocument,
-        templateDescription: "Detailed technical walkthrough with system boxes, implementation notes, pitfalls, edge cases, and final takeaways."
+        )
     )
 
     fileprivate static let legacyTechnicalDeepDiveTemplate = Template(
@@ -784,7 +827,7 @@ extension Template {
         goal: formalDocument
         generation_hint: |
           Preserve technical detail and use sections to explain mechanisms, tradeoffs, and implementation notes.
-        sample_data: formal_brief
+        sample_data: technical_deep_dive
         ---
         # {{title}}
 

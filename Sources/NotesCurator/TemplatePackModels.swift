@@ -65,6 +65,7 @@ struct TemplateImportReview: Equatable, Sendable {
     var fingerprint: SourceFingerprint
     var inferredArchetype: TemplateArchetype
     var templatePack: TemplatePack
+    var latexProjectSource: LatexProjectSource?
 }
 
 struct TemplatePackIdentity: Codable, Equatable, Sendable {
@@ -371,6 +372,32 @@ extension Template {
         return template
     }
 
+    static func latexProject(
+        _ project: LatexProjectSource,
+        id: UUID = UUID(),
+        scope: TemplateScope,
+        name: String,
+        subtitle: String = "",
+        templateDescription: String = "",
+        goalType: GoalType,
+        pack: TemplatePack? = nil
+    ) -> Template {
+        Template(
+            id: id,
+            kind: .content,
+            scope: scope,
+            name: name,
+            subtitle: subtitle,
+            templateDescription: templateDescription,
+            format: .latexProject,
+            body: "",
+            config: ["goal": goalType.rawValue, "latex_project": "v1"],
+            storedPackData: pack.flatMap { try? JSONEncoder().encode($0) },
+            storedLatexSource: project.mainFileText,
+            storedLatexProjectData: try? JSONEncoder().encode(project)
+        )
+    }
+
     func editableCopy(scope: TemplateScope) -> Template {
         Template(
             kind: kind,
@@ -382,7 +409,8 @@ extension Template {
             body: body,
             config: config,
             storedPackData: storedPackData,
-            storedLatexSource: storedLatexSource
+            storedLatexSource: storedLatexSource,
+            storedLatexProjectData: storedLatexProjectData
         )
     }
 
@@ -400,11 +428,12 @@ extension Template {
             name: name,
             subtitle: subtitle,
             templateDescription: templateDescription,
-            format: .markdownTemplate,
+            format: format,
             body: body,
             config: config,
             storedPackData: storedPackData,
-            storedLatexSource: storedLatexSource
+            storedLatexSource: storedLatexSource,
+            storedLatexProjectData: storedLatexProjectData
         )
     }
 
@@ -416,18 +445,31 @@ extension Template {
         pack: TemplatePack,
         goalType: GoalType
     ) -> Template {
-        Template(
+        let projectData: Data?
+        let resolvedLatexSource: String?
+        if let storedLatexProjectData,
+           let project = try? JSONDecoder().decode(LatexProjectSource.self, from: storedLatexProjectData) {
+            let updatedProject = project.updatingMainFile(text: latexSource)
+            projectData = try? JSONEncoder().encode(updatedProject)
+            resolvedLatexSource = updatedProject.mainFileText
+        } else {
+            projectData = storedLatexProjectData
+            resolvedLatexSource = latexSource
+        }
+
+        return Template(
             id: id,
             kind: .content,
             scope: scope,
             name: name,
             subtitle: subtitle,
             templateDescription: templateDescription,
-            format: .markdownTemplate,
+            format: storedLatexProjectData == nil ? .markdownTemplate : .latexProject,
             body: "",
             config: ["template_pack": "v1", "goal": goalType.rawValue],
             storedPackData: try? JSONEncoder().encode(pack),
-            storedLatexSource: latexSource
+            storedLatexSource: resolvedLatexSource,
+            storedLatexProjectData: projectData
         )
     }
 
@@ -442,7 +484,8 @@ extension Template {
             body: body,
             config: config,
             storedPackData: storedPackData,
-            storedLatexSource: storedLatexSource
+            storedLatexSource: storedLatexSource,
+            storedLatexProjectData: storedLatexProjectData
         )
     }
 
@@ -460,6 +503,11 @@ extension Template {
         return copy
     }
 
+    func latexProjectSource() -> LatexProjectSource? {
+        guard let storedLatexProjectData else { return nil }
+        return try? JSONDecoder().decode(LatexProjectSource.self, from: storedLatexProjectData)
+    }
+
     func templatePack() throws -> TemplatePack {
         if let storedPackData {
             guard let pack = try? JSONDecoder().decode(TemplatePack.self, from: storedPackData) else {
@@ -475,6 +523,9 @@ extension Template {
     }
 
     var latexAuthoringSource: String? {
+        if let project = latexProjectSource(), let mainFileText = project.mainFileText {
+            return mainFileText
+        }
         if let storedLatexSource, storedLatexSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             return storedLatexSource
         }
