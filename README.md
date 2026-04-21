@@ -53,6 +53,14 @@
 
 根目录不会保存真实 API key。你可以在本地通过应用设置页，或环境变量来配置。
 
+## YC AI Kit Reuse
+
+如果你想把 `API key + hosted provider + health check + staged routing + SwiftUI 设置区块` 复用到别的项目，现在仓库里已经额外放了一份独立 package：
+
+- [YCAPIReuse/YCAIKit](</Users/yichenlin/Desktop/App/Notes/YCAPIReuse/YCAIKit>)
+
+它现在按独立 package 来维护，`Noter` 只是它的一个消费者。这个 package 负责多 provider hosted AI 接入、key 管理、health check、route-based model split、retry/fallback、structured JSON 输出，以及可直接复用的 SwiftUI 设置区块，适合直接作为本地 Swift package 引进新项目。
+
 支持的环境变量包括：
 
 - `NOTESCURATOR_NVIDIA_API_KEY`
@@ -128,6 +136,12 @@
 - export
 
 最近也修复了一些和工作区 / 编辑界面相关的布局问题，例如 sidebar 在特定页面中位置上飘的问题。
+
+### 8. macOS 原生窗口行为
+
+- 主窗口关闭后，应用本身不会被强制退出。
+- 如果用户关闭了最后一个窗口，再点击 Dock icon，应用会重新打开主窗口，不需要先 Quit 再重新启动。
+- 模板或功能更新如果涉及 app shell，也应该尽量保持这种原生 macOS 语义，而不是把红色关闭按钮做成自定义的“隐藏”或“软退出”行为。
 
 ## 项目结构
 
